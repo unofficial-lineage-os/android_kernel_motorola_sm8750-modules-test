@@ -15,7 +15,18 @@ ifeq ($(WLAN_ROOT),)
 
 ifeq ($(WLAN_ROOT_MODULE_SOURCE_PATH),)
 # WLAN_ROOT must contain an absolute path (i.e. not a relative path)
+# leap: standalone kbuild settings (as in LineageOS/android_kernel_oneplus_sm8750-modules)
+KBUILD_EXTRA := \
+    CONFIG_IPA_OUT_OF_TREE=y \
+    WLAN_PROFILE=sun_gki_peach-v2 \
+    MODNAME=qca_cld3_peach_v2
+
 KBUILD_OPTIONS := WLAN_ROOT=$(shell cd $(KERNEL_SRC); readlink -e $(M))
+# leap: cross-module symbols (must follow the := reset above)
+KBUILD_OPTIONS += \
+    KBUILD_EXTRA_SYMBOLS=$(M)/../../dataipa/drivers/platform/msm/Module.symvers \
+    KBUILD_EXTRA_SYMBOLS+=$(M)/../platform/Module.symvers
+
 else
 # Honor what is passed from Make variable $(M), which could be a relative path.
 KBUILD_OPTIONS := WLAN_ROOT=$(M)

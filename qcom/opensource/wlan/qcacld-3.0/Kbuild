@@ -24,7 +24,8 @@ WLAN_PROFILE ?= default
 CONFIG_QCA_CLD_WLAN_PROFILE ?= $(WLAN_PROFILE)
 DEVNAME ?= wlan
 WLAN_PLATFORM_INC ?= $(WLAN_ROOT)/../platform/inc
-DATA_IPA_INC ?= $(WLAN_ROOT)/../dataipa/drivers/platform/msm/include
+# leap: dataipa is a sibling of wlan/ (was ../dataipa)
+DATA_IPA_INC ?= $(WLAN_ROOT)/../../dataipa/drivers/platform/msm/include
 DATA_IPA_UAPI_INC ?= $(DATA_IPA_INC)/uapi
 
 ifeq ($(KERNEL_BUILD), n)
@@ -3758,6 +3759,11 @@ endif
 ifeq (y,$(findstring y,$(CONFIG_ARCH_MSM) $(CONFIG_ARCH_QCOM)))
 ccflags-y += -DMSM_PLATFORM
 endif
+# leap: kleaf builds the kernel with this define; kbuild does not (ported from LOS qcom copy)
+ccflags-y += -D__ANDROID_COMMON_KERNEL__
+# leap: dataipa's CONFIG_IPA3 etc. come from its vendor config header (ported from the LOS oneplus copy);
+# without it ipa_wdi3.h's !IPA3 stub branch (which has a syntax error) is compiled
+ccflags-$(CONFIG_IPA_OUT_OF_TREE) += -include $(WLAN_ROOT)/../../dataipa/config/dataipa_vendor.h
 
 ccflags-$(CONFIG_CNSS_OUT_OF_TREE) += -DCONFIG_CNSS_OUT_OF_TREE
 ccflags-$(CONFIG_CNSS_OUT_OF_TREE) += -I$(WLAN_PLATFORM_INC)

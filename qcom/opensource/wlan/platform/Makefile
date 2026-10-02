@@ -9,6 +9,9 @@ WLAN_PLATFORM_ROOT = $(shell pwd)
 # so enable all flags (including debug flag CONFIG_CNSS2_DEBUG) by
 # default.
 KBUILD_OPTIONS := WLAN_PLATFORM_ROOT=$(WLAN_PLATFORM_ROOT)
+# leap: cnss_utils_smem_mailbox_write (needed by qcacld) is behind CONFIG_FEATURE_SMEM_MAILBOX; symbols from data-kernel
+KBUILD_OPTIONS += CONFIG_FEATURE_SMEM_MAILBOX=y
+KBUILD_OPTIONS += KBUILD_EXTRA_SYMBOLS+=$(M)/../../data-kernel/drivers/smem-mailbox/Module.symvers
 ifeq ($(WLAN_BASEMACHINE),qcs40x)
 KBUILD_OPTIONS += CONFIG_CNSS_OUT_OF_TREE=y
 KBUILD_OPTIONS += CONFIG_ICNSS2=m

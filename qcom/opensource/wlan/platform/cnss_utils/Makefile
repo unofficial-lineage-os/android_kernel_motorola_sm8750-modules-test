@@ -6,6 +6,10 @@ ifeq ($(CONFIG_CNSS_OUT_OF_TREE),y)
 ccflags-y += -I$(WLAN_PLATFORM_ROOT)/inc
 endif
 
+# leap: ported from LOS qcom-generic cnss_utils/Makefile — turns the make var into the C define + header path
+ccflags-$(CONFIG_FEATURE_SMEM_MAILBOX) += -DCONFIG_FEATURE_SMEM_MAILBOX \
+	-I$(WLAN_PLATFORM_ROOT)/../../data-kernel/drivers/smem-mailbox/include
+
 obj-$(CONFIG_CNSS_UTILS) += cnss_utils.o
 
 obj-$(CONFIG_CNSS_QMI_SVC) += wlan_firmware_service.o
