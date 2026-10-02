@@ -16,6 +16,10 @@
 #include "sde_trace.h"
 #include "sde_dbg.h"
 
+/* leap: reference values from Qualcomm's sun-sde.dtsi, used when the stock Motorola DT lacks them */
+#define SDE_CESTA_SUN_DISP_CC_BASE	0x0af0f000
+#define SDE_CESTA_SUN_DISP_CC_LEN	0x10
+#define SDE_CESTA_SUN_XO_FREQ		19200000
 #define SDE_ERROR_CESTA(fmt, ...) pr_err("[sde error cesta]" fmt, ##__VA_ARGS__)
 #define SDE_DEBUG_CESTA(fmt, ...) pr_debug("[sde debug cesta]" fmt, ##__VA_ARGS__)
 
@@ -1190,8 +1194,19 @@ static int sde_cesta_probe(struct platform_device *pdev)
 
 	ret = msm_dss_ioremap_byname(pdev, &cesta->disp_cc_io, "disp_cc");
 	if (ret) {
-		SDE_ERROR_CESTA("dispcc io data mapping failed, ret:%d\n", ret);
-		goto fail;
+		/*
+		 * leap: the CESTA node comes from Motorola's stock dtbo, written for their older display
+		 * driver, and has no "disp_cc" region. Use the address Qualcomm's sun-sde.dtsi gives it
+		 * (DISP_CC MISC_CMD block) so MDP clock-gate control behaves as on the reference DT.
+		 */
+		cesta->disp_cc_io.len = SDE_CESTA_SUN_DISP_CC_LEN;
+		cesta->disp_cc_io.base = ioremap(SDE_CESTA_SUN_DISP_CC_BASE, SDE_CESTA_SUN_DISP_CC_LEN);
+		if (!cesta->disp_cc_io.base) {
+			SDE_ERROR_CESTA("dispcc io data mapping failed, ret:%d\n", ret);
+			goto fail;
+		}
+		pr_info("sde_cesta: no disp_cc in DT, using sun default 0x%x\n", SDE_CESTA_SUN_DISP_CC_BASE);
+		ret = 0;
 	}
 
 	cesta->scc_count = 0;
@@ -1291,10 +1306,12 @@ static int sde_cesta_probe(struct platform_device *pdev)
 
 	xo_clk = devm_clk_get(dev, "xo");
 	if (IS_ERR(xo_clk)) {
-		SDE_ERROR_CESTA("failed to get xo clock");
-		goto fail;
+		/* leap: Motorola's CESTA node has no "xo" clock; sun-sde.dtsi runs it at 19.2 MHz */
+		pr_info("sde_cesta: no xo clock in DT, using %u Hz\n", SDE_CESTA_SUN_XO_FREQ);
+		cesta->xo_freq = SDE_CESTA_SUN_XO_FREQ;
+	} else {
+		cesta->xo_freq = clk_get_rate(xo_clk);
 	}
-	cesta->xo_freq = clk_get_rate(xo_clk);
 
 	sde_cesta_hw_init(cesta);
 	cesta->hw_ops.init(cesta);
