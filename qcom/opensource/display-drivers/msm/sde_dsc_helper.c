@@ -88,6 +88,32 @@ static char sde_dsc_rc_range_max_qp[DSC_RATIO_TYPE_MAX][DSC_NUM_BUF_RANGES] = {
 /*
  * Rate control - bpg offset values for each ratio type in sde_dsc_ratio_type
  */
+/*
+ * leap: rate-control max QP for Novatek DDICs, selected by the panel's "qcom,mdss-dsc-novateck-ic" flag.
+ * Motorola publishes no display-drivers source for this phone; these 14x15 values are
+ * sde_dsc_rc_range_max_qp_nt from leap's A16 stock vendor_dlkm msm_drm.ko (BuildID 54aa569990a5fcb3eb9a5d5e0762d53a514864d4),
+ * extracted byte for byte (tools/dsc_d55/). They differ from sde_dsc_rc_range_max_qp in exactly one
+ * cell, [DSC_V11_10BPC_8BPP][0] = 8 (generic 4), the row both leap panels (NT37707, DSC 1.1, 10 bpc,
+ * 8 bpp, RGB 444, no SCR) resolve to. min QP, bpg and bpg_override_v1 match stock unchanged.
+ * Same finding as the arcfox (Razr 50 Ultra) port.
+ */
+static char sde_dsc_rc_range_max_qp_nt[DSC_RATIO_TYPE_MAX][DSC_NUM_BUF_RANGES] = {
+	{4, 4, 5, 6, 7, 7, 7, 8, 9, 10, 11, 12, 13, 13, 15},
+	{8, 8, 9, 10, 11, 11, 11, 12, 13, 14, 15, 16, 17, 17, 19},
+	{7, 8, 9, 10, 11, 11, 11, 12, 13, 13, 14, 14, 15, 15, 16},
+	{4, 4, 5, 6, 7, 7, 7, 8, 9, 10, 10, 11, 11, 12, 13},
+	{8, 8, 9, 10, 11, 11, 11, 12, 13, 14, 14, 15, 15, 16, 17},
+	{7, 8, 9, 10, 11, 11, 11, 12, 13, 13, 14, 14, 15, 15, 16},
+	{3, 4, 5, 6, 7, 7, 7, 8, 9, 9, 10, 10, 11, 11, 12},
+	{2, 4, 5, 6, 7, 7, 7, 8, 8, 9, 9, 9, 9, 10, 11},
+	{7, 8, 9, 10, 11, 11, 11, 12, 13, 13, 14, 14, 15, 15, 16},
+	{2, 5, 7, 8, 9, 10, 11, 12, 12, 13, 13, 13, 13, 14, 15},
+	{2, 5, 5, 6, 6, 7, 7, 8, 9, 9, 10, 11, 11, 12, 13},
+	{2, 4, 5, 6, 7, 7, 7, 8, 8, 9, 9, 9, 9, 10, 12},
+	{2, 5, 7, 8, 9, 10, 11, 12, 12, 13, 13, 13, 13, 14, 15},
+	{2, 5, 5, 6, 6, 7, 7, 8, 9, 9, 10, 11, 11, 12, 13},
+};
+
 static char sde_dsc_rc_range_bpg[DSC_RATIO_TYPE_MAX][DSC_NUM_BUF_RANGES] = {
 	/* DSC v1.1 */
 	{2, 0, 0, -2, -4, -6, -8, -8, -8, -10, -10, -12, -12, -12, -12},
@@ -261,6 +287,29 @@ u8 _get_dsc_v1_2_bpg_offset(struct drm_dsc_config *dsc)
 		return bpg_offset;
 	else
 		return (uncompressed_bpg_rate - (3 * bpp));
+}
+
+/*
+ * leap: Novatek variant of sde_dsc_populate_dsc_config(), as in Motorola's stock driver. The generic routine
+ * writes rc_range_params[].range_max_qp from the table and never reads it again (everything after the loop
+ * is keyed on ratio_idx), so overriding it afterwards is exactly equivalent to reading the _nt table there.
+ */
+int sde_dsc_populate_dsc_config_nt(struct drm_dsc_config *dsc, int scr_ver)
+{
+	int rc, i, ratio_idx;
+
+	rc = sde_dsc_populate_dsc_config(dsc, scr_ver);
+	if (rc)
+		return rc;
+
+	ratio_idx = _get_rc_table_index(dsc, scr_ver);
+	if ((ratio_idx < 0) || (ratio_idx >= DSC_RATIO_TYPE_MAX))
+		return -EINVAL;
+
+	for (i = 0; i < DSC_NUM_BUF_RANGES; i++)
+		dsc->rc_range_params[i].range_max_qp = sde_dsc_rc_range_max_qp_nt[ratio_idx][i];
+
+	return 0;
 }
 
 int sde_dsc_populate_dsc_config(struct drm_dsc_config *dsc, int scr_ver) {

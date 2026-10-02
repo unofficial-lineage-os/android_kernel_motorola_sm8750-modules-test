@@ -11,6 +11,9 @@
 
 #define DSC_1_1_PPS_PARAMETER_SET_ELEMENTS   88
 
+/* leap: Novatek DDIC variant (panel flag "qcom,mdss-dsc-novateck-ic"), see sde_dsc_helper.c */
+int sde_dsc_populate_dsc_config_nt(struct drm_dsc_config *dsc, int scr_ver);
+
 int sde_dsc_populate_dsc_config(struct drm_dsc_config *dsc, int scr_ver);
 
 int sde_dsc_populate_dsc_private_params(struct msm_display_dsc_info *dsc_info,

@@ -3225,8 +3225,17 @@ static int dsi_panel_parse_dsc_params(struct dsi_display_mode *mode,
 	priv_info->dsc.config.slice_count = DIV_ROUND_UP(intf_width,
 		priv_info->dsc.config.slice_width);
 
-	rc = sde_dsc_populate_dsc_config(&priv_info->dsc.config,
-			priv_info->dsc.scr_rev);
+	/*
+	 * leap: Motorola's stock driver routes Novatek DDICs (every leap panel timing node sets
+	 * "qcom,mdss-dsc-novateck-ic") through the _nt rate-control table; without it the panel decodes
+	 * with a different max QP than we encode with and the picture turns to noise.
+	 */
+	if (utils->read_bool(utils->data, "qcom,mdss-dsc-novateck-ic"))
+		rc = sde_dsc_populate_dsc_config_nt(&priv_info->dsc.config,
+				priv_info->dsc.scr_rev);
+	else
+		rc = sde_dsc_populate_dsc_config(&priv_info->dsc.config,
+				priv_info->dsc.scr_rev);
 	if (rc) {
 		DSI_DEBUG("failed populating dsc params\n");
 		rc = -EINVAL;
