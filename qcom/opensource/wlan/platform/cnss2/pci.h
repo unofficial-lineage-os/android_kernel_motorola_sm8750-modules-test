@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * Copyright (c) 2016-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2025 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #ifndef _CNSS_PCI_H
@@ -9,9 +9,7 @@
 
 #include <linux/cma.h>
 #include <linux/iommu.h>
-#if IS_ENABLED(CONFIG_QCOM_IOMMU_UTIL)
 #include <linux/qcom-iommu-util.h>
-#endif
 #include <linux/mhi.h>
 #if IS_ENABLED(CONFIG_MHI_BUS_MISC)
 #include <linux/mhi_misc.h>
@@ -117,29 +115,6 @@ struct cnss_misc_reg {
 	u32 val;
 };
 
-struct cnss_sw_reset_reg_params {
-	unsigned int pcie_txvecdb;
-	unsigned int pcie_txvecstatus;
-	unsigned int pcie_rxvecdb;
-	unsigned int pcie_rxvecstatus;
-	unsigned int pcie_parf_ltssm;
-	unsigned int ltssm_value;
-	unsigned int gcc_pcie_hot_rst;
-	unsigned int gcc_pcie_hot_rst_val;
-	unsigned int pcie_int_all_clear;
-	unsigned int pcie_int_clear_all;
-	unsigned int wlaon_qfprom_pwr_ctrl_reg;
-	unsigned int qfprom_pwr_ctrl_vdd4blow_mask;
-	unsigned int wlaon_warm_sw_entry;
-	unsigned int wlaon_soc_reset_cause_reg;
-	unsigned int pcie_q6_cookie_addr;
-	unsigned int pcie_soc_global_reset;
-	unsigned int pcie_soc_global_reset_v;
-	unsigned int mhistatus;
-	unsigned int mhictrl;
-	unsigned int mhictrl_reset_mask;
-};
-
 struct cnss_pm_stats {
 	atomic_t runtime_get;
 	atomic_t runtime_put;
@@ -207,57 +182,11 @@ struct cnss_pci_data {
 	struct cnss_misc_reg *pcie_reg;
 	struct cnss_misc_reg *wlaon_reg;
 	struct cnss_misc_reg *syspm_reg;
-	const struct cnss_sw_reset_reg_params *reset_regs;
 	unsigned long misc_reg_dev_mask;
 	u8 iommu_geometry;
 	bool drv_supported;
 	bool is_smmu_fault;
 	unsigned long long smmu_fault_timestamp[SMMU_CB_MAX];
-	atomic_t id_mismatch_cnt;
-};
-
-/**
- * struct rddm_table_info - rddm table info
- * @base_address - Start offset of the file
- * @actual_phys_address - phys addr offset of file
- * @size - size of file
- * @description - file description
- * @file_name - name of file
- */
-struct rddm_table_info {
-	u64 base_address;
-	u64 actual_phys_address;
-	u64 size;
-	char description[20];
-	char file_name[20];
-};
-
-#define MAX_RDDM_TABLE_SIZE (12)
-
-/**
- * struct rddm_header - rddm header
- * @version - header ver
- * @header_size - size of header
- * @rddm_table_info - array of rddm table info
- */
-struct rddm_header {
-	u32 version;
-	u32 header_size;
-	struct rddm_table_info table_info[MAX_RDDM_TABLE_SIZE];
-};
-
-/**
- * struct file_info - keeping track of file info while traversing the rddm
- * table header
- * @file_offset - current file offset
- * @seg_idx - mhi buf seg array index
- * @rem_seg_len - remaining length of the segment containing current file
- */
-struct file_info {
-	u8 *file_offset;
-	u32 file_size;
-	u32 seg_idx;
-	u32 rem_seg_len;
 };
 
 static inline void cnss_set_pci_priv(struct pci_dev *pci_dev, void *data)
@@ -392,13 +321,10 @@ int cnss_pcie_is_device_down(struct cnss_pci_data *pci_priv);
 int cnss_pci_shutdown_cleanup(struct cnss_pci_data *pci_priv);
 int cnss_pci_suspend_bus(struct cnss_pci_data *pci_priv);
 int cnss_pci_resume_bus(struct cnss_pci_data *pci_priv);
-int cnss_pci_reg_read(struct cnss_pci_data *pci_priv, u32 offset, u32 *val);
-int cnss_pci_reg_write(struct cnss_pci_data *pci_priv, u32 offset, u32 val);
 int cnss_pci_debug_reg_read(struct cnss_pci_data *pci_priv, u32 offset,
 			    u32 *val, bool raw_access);
 int cnss_pci_debug_reg_write(struct cnss_pci_data *pci_priv, u32 offset,
 			     u32 val, bool raw_access);
-void cnss_pci_soc_reset_cause_reg_dump(struct cnss_pci_data *pci_priv);
 int cnss_pci_get_iova(struct cnss_pci_data *pci_priv, u64 *addr, u64 *size);
 int cnss_pci_get_iova_ipa(struct cnss_pci_data *pci_priv, u64 *addr,
 			  u64 *size);
@@ -416,13 +342,4 @@ int cnss_pci_get_user_msi_assignment(struct cnss_pci_data *pci_priv,
 				     u32 *user_base_data,
 				     u32 *base_vector);
 void cnss_register_iommu_fault_handler_irq(struct cnss_pci_data *pci_priv);
-void cnss_pci_start_xdump_timer(struct cnss_pci_data *pci_priv);
-int cnss_pci_get_msi_address(struct cnss_pci_data *pci_priv, u32 *msi_addr_low,
-			     u32 *msi_addr_high);
-void cnss_pci_notify_mhi_error(struct cnss_pci_data *pci_priv);
-int cnss_pci_save_rddm_seg(struct cnss_pci_data *pci_priv);
-int cnss_pci_restore_rddm_seg(struct cnss_pci_data *pci_priv);
-u8 **cnss_pci_collect_rddm_seg_info(struct cnss_pci_data *pci_priv,
-				    u32 *rddm_entries,
-				    u32 *rddm_seg_len);
 #endif /* _CNSS_PCI_H */

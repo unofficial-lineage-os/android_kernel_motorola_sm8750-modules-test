@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * Copyright (c) 2017-2020, 2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2023-2025 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2023-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #ifndef __MAIN_H__
@@ -34,7 +34,6 @@
 #include <linux/sched/clock.h>
 #endif
 #include <linux/iommu.h>
-#include <linux/version.h>
 
 #define THERMAL_NAME_LENGTH 20
 #define ICNSS_SMEM_VALUE_MASK 0xFFFFFFFF
@@ -43,7 +42,6 @@
 #define ADRASTEA_PATH_PREFIX   "adrastea/"
 #define WCN6450_PATH_PREFIX    "wcn6450/"
 #define WCN7750_PATH_PREFIX    "wcn7750/"
-#define WCN8750_PATH_PREFIX    "wcn8750/"
 #define ICNSS_MAX_FILE_NAME      45
 #define ICNSS_PCI_EP_WAKE_OFFSET 4
 #define ICNSS_DISABLE_M3_SSR 0
@@ -52,13 +50,8 @@
 #define WLAN_RF_APACHE 1
 #define ICNSS_RAMDUMP_MAGIC		0x574C414E
 #define ICNSS_RAMDUMP_VERSION		0
+#define ICNSS_FW_LPASS_SHARED_MEM_SIZE  8
 #define MSI_USERS                       2
-/* Consecutive SOC wake request failures to trigger recovery */
-#define ICNSS_SOC_WAKE_RECOVERY_COUNT 5
-
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(6, 16, 0))
-#define from_timer timer_container_of
-#endif
 
 extern uint64_t dynamic_feature_mask;
 
@@ -137,7 +130,6 @@ enum icnss_driver_event_type {
 	ICNSS_DRIVER_EVENT_WLFW_TWT_CFG_IND,
 	ICNSS_DRIVER_EVENT_QDSS_TRACE_REQ_DATA,
 	ICNSS_DRIVER_EVENT_SUBSYS_RESTART_LEVEL,
-	ICNSS_DRIVER_EVENT_XO_TRIM_IND,
 	ICNSS_DRIVER_EVENT_MAX,
 };
 
@@ -203,8 +195,6 @@ enum icnss_driver_state {
 	ICNSS_SLATE_UP,
 	ICNSS_SLATE_READY,
 	ICNSS_LOW_POWER,
-	ICNSS_SOC_WAKE_DONE,
-	ICNSS_REBOOT_REGISTERED,
 };
 
 struct ce_irq_list {
@@ -256,15 +246,6 @@ struct icnss_clk_info {
 	u32 enabled;
 };
 
-struct icnss_pinctrl_info {
-	struct pinctrl *pinctrl;
-	struct pinctrl_state *sw_ctrl;
-	struct pinctrl_state *wlan_en_active;
-	struct pinctrl_state *wlan_en_sleep;
-	int wlan_en_gpio;
-	int sw_ctrl_gpio;
-};
-
 struct icnss_fw_mem {
 	size_t size;
 	void *va;
@@ -298,7 +279,6 @@ struct icnss_stats {
 	struct {
 		u32 posted;
 		u32 processed;
-		u32 recovery_count;
 	} soc_wake_events[ICNSS_SOC_WAKE_EVENT_MAX];
 
 	struct {
@@ -483,142 +463,6 @@ struct cnss_host_dump_meta_info {
 	struct icnss_dump_entry entry[CNSS_HOST_DUMP_TYPE_MAX];
 };
 
-enum icnss_wlfw_gpio_config_type {
-	WLFW_GPIO_NUM_V01,
-	WLFW_GPIO_NAME_V01,
-	WLFW_PMIC_INDEX_V01,
-	WLFW_GPIO_TYPE_V01,
-	WLFW_OUTPUT_VALUE_V01,
-	WLFW_FUNC_V01,
-	WLFW_DIRECTION_V01,
-	WLFW_DRIVE_V01,
-	WLFW_BIAS_V01,
-	WLFW_IS_CLK_V01,
-	WLFW_IS_WAKE_V01,
-	WLFW_INTRPT_TRIGGER_TYPE_V01,
-	WLFW_PRIORITY_V01,
-	WLFW_GPIO_BITRESERVED_V01,
-	WLFW_GPIO_ARRAY_VALID_V01,
-	WLFW_GPIO_OWNER_V01,
-	WLFW_GPIO_PARAMS_MAX_V01,
-};
-
-static inline const char *icnss_gpio_output_str(int value)
-{
-	switch (value) {
-	case WLFW_GPIO_LOW_VALUE_V01:
-		return "low";
-	case WLFW_GPIO_HIGH_VALUE_V01:
-		return "high";
-	case QMI_WLFW_GPIO_CONFIG_INVALID_V01:
-		return "invalid";
-	default:
-		return "unknown";
-	}
-}
-
-static inline const char *icnss_gpio_bias_str(int value)
-{
-	switch (value) {
-	case WLFW_GPIO_NO_PULL_V01:
-		return "no_pull";
-	case WLFW_GPIO_PULL_DOWN_V01:
-		return "pull_down";
-	case WLFW_GPIO_KEEPER_V01:
-		return "keeper";
-	case WLFW_GPIO_PULL_UP_V01:
-		return "pull_up";
-	case QMI_WLFW_GPIO_CONFIG_INVALID_V01:
-		return "invalid";
-	default:
-		return "unknown";
-	}
-}
-
-static inline const char *icnss_gpio_direction_str(int value)
-{
-	switch (value) {
-	case WLFW_GPIO_INPUT_V01:
-		return "input";
-	case WLFW_GPIO_OUTPUT_V01:
-		return "output";
-	case WLFW_GPIO_BI_DIRECTIONAL_V01:
-		return "bi_directional";
-	case QMI_WLFW_GPIO_CONFIG_INVALID_V01:
-		return "invalid";
-	default:
-		return "unknown";
-	}
-}
-
-static inline const char *icnss_gpio_intr_trigger_str(int value)
-{
-	switch (value) {
-	case WLFW_GPIO_INTR_TRIGGER_HIGH_V01:
-		return "high";
-	case WLFW_GPIO_INTR_TRIGGER_LOW_V01:
-		return "low";
-	case WLFW_GPIO_INTR_TRIGGER_RISING_V01:
-		return "rising";
-	case WLFW_GPIO_INTR_TRIGGER_FALLING_V01:
-		return "falling";
-	case WLFW_GPIO_INTR_TRIGGER_DUAL_EDGE_V01:
-		return "dual_edge";
-	case QMI_WLFW_GPIO_CONFIG_INVALID_V01:
-		return "invalid";
-	default:
-		return "unknown";
-	}
-}
-
-static inline const char *icnss_gpio_type_str(int value)
-{
-	switch (value) {
-	case WLFW_GPIO_TYPE_PMIC_V01:
-		return "pmic";
-	case WLFW_GPIO_TYPE_TLMM_V01:
-		return "tlmm";
-	case QMI_WLFW_GPIO_CONFIG_INVALID_V01:
-		return "invalid";
-	default:
-		return "unknown";
-	}
-}
-
-static inline const char *icnss_gpio_name_str(int value)
-{
-	switch (value) {
-	case WLAN_EN_GPIO_V01:
-		return "WLAN_EN";
-	case BT_EN_GPIO_V01:
-		return "BT_EN";
-	case HOST_SOL_GPIO_V01:
-		return "HOST_SOL";
-	case TARGET_SOL_GPIO_V01:
-		return "DEV_SOL";
-	case WLAN_SW_CTRL_GPIO_V01:
-		return "WLAN_SW_CTRL";
-	case RESET_B_GPIO_V01:
-		return "RESET_B";
-	case QMI_WLFW_GPIO_INVALID_V01:
-		return "INVALID";
-	default:
-		return "unknown";
-	}
-}
-
-/**
- * struct icnss_xo_trim_config - Configuration for crystal oscillator (XO) trim
- * @xo_calib_reg: register for XO calibration
- * @wcal_pbs: regulator to trigger PBS sequence
- * @trim_val: trim value for XO
- */
-struct icnss_xo_trim_config {
-	struct nvmem_cell *xo_calib_reg;
-	struct regulator *wcal_pbs;
-	u8 trim_val;
-};
-
 struct icnss_priv {
 	uint32_t magic;
 	struct platform_device *pdev;
@@ -626,7 +470,6 @@ struct icnss_priv {
 	struct ce_irq_list ce_irq_list[ICNSS_MAX_IRQ_REGISTRATIONS];
 	struct list_head vreg_list;
 	struct list_head clk_list;
-	struct icnss_pinctrl_info pinctrl_info;
 	struct icnss_cpr_info cpr_info;
 	unsigned long device_id;
 	struct icnss_msi_config *msi_config;
@@ -694,7 +537,6 @@ struct icnss_priv {
 	struct notifier_block wpss_early_ssr_nb;
 	void *slate_notify_handler;
 	struct notifier_block slate_ssr_nb;
-	struct notifier_block reboot_nb;
 	uint32_t diag_reg_read_addr;
 	uint32_t diag_reg_read_mem_type;
 	uint32_t diag_reg_read_len;
@@ -723,7 +565,6 @@ struct icnss_priv {
 	struct kobject *icnss_kobject;
 	struct rproc *rproc;
 	atomic_t is_shutdown;
-	atomic_t is_idle_shutdown;
 	u32 qdss_mem_seg_len;
 	struct icnss_fw_mem qdss_mem[QMI_WLFW_MAX_NUM_MEM_SEG_V01];
 	struct icnss_fw_mem phy_ucode_mem;
@@ -741,7 +582,6 @@ struct icnss_priv {
 	void *hang_event_data;
 	struct list_head icnss_tcdev_list;
 	struct mutex tcdev_lock;
-	struct mutex wpss_lock;
 	bool is_chain1_supported;
 	u32 hw_trc_override;
 	struct icnss_dms_data dms;
@@ -798,20 +638,8 @@ struct icnss_priv {
 	u32 cpumask_for_tx_comp_intrs;
 	bool fw_direct_link_support;
 	bool is_audio_shared_iommu_group;
-	phys_addr_t fw_lpass_shared_mem;
-	size_t fw_lpass_shared_mem_size;
+	phys_addr_t fw_lpass_shared_mem_pa;
 	struct iommu_domain *audio_iommu_domain;
-	struct kobject *wifi_kobj;
-	struct wlfw_shared_mem_client_info_v01
-		shared_mem[QMI_WLFW_SHARED_MAX_CLIENT_SUPPORT_V01];
-	u64 fw_caps;
-	u32 ddr_type;
-	u32 gpio_config_arr[GPIO_TYPE_MAX_V01][WLFW_GPIO_PARAMS_MAX_V01];
-	uint32_t soc_wake_req_fail;
-	struct icnss_xo_trim_config xo_trim_conf;
-	struct nvmem_cell *wcn_ktb_info_reg;
-	u8 *wcn_ktb_info_buf;
-	bool legacy_ipc_transport;
 };
 
 struct icnss_reg_info {
@@ -844,18 +672,5 @@ int icnss_aop_pdc_reconfig(struct icnss_priv *priv);
 void icnss_power_misc_params_init(struct icnss_priv *priv);
 void icnss_recovery_timeout_hdlr(struct timer_list *t);
 void icnss_wpss_ssr_timeout_hdlr(struct timer_list *t);
-void icnss_xo_trim_deinit(struct icnss_priv *priv);
-
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(6, 15, 0))
-static inline int icnss_timer_delete(struct timer_list *timer)
-{
-	return timer_delete(timer);
-}
-#else
-static inline int icnss_timer_delete(struct timer_list *timer)
-{
-	return del_timer(timer);
-}
-#endif
 #endif
 

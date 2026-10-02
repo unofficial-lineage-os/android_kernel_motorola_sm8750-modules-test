@@ -114,13 +114,6 @@ struct icnss_rri_over_ddr_cfg {
 	u32 base_addr_low;
 	u32 base_addr_high;
 };
-
-struct icnss_ce_cmn_register_config {
-	u32 offset_addr;
-	u32 reg_mask;
-	u32 reg_value;
-};
-
 /* CE configuration to target */
 struct icnss_wlan_enable_cfg {
 	u32 num_ce_tgt_cfg;
@@ -135,8 +128,6 @@ struct icnss_wlan_enable_cfg {
 	struct icnss_shadow_reg_v3_cfg *shadow_reg_v3_cfg;
 	bool rri_over_ddr_cfg_valid;
 	struct icnss_rri_over_ddr_cfg rri_over_ddr_cfg;
-	u32 num_ce_cmn_reg_config;
-	struct icnss_ce_cmn_register_config *ce_cmn_reg_cfg;
 };
 
 /* driver modes */
@@ -170,11 +161,6 @@ enum icnss_phy_qam_cap {
 	ICNSS_PHY_QAM_CAP_1K,
 	ICNSS_PHY_QAM_CAP_4K,
 	ICNSS_PHY_QAM_CAP_MAX_VAL,
-};
-
-enum icnss_fw_caps {
-	ICNSS_FW_CAP_CE_CMN_CFG_SUPPORT,
-	ICNSS_FW_CAP_DIRECT_REFILL_SUPPORT,
 };
 
 struct icnss_soc_info {
@@ -231,7 +217,6 @@ extern int icnss_smmu_map(struct device *dev, phys_addr_t paddr,
 extern int icnss_smmu_unmap(struct device *dev,
 			    uint32_t iova_addr, size_t size);
 extern bool icnss_get_audio_shared_iommu_group_cap(struct device *dev);
-extern int icnss_get_direct_link_sid(struct device *dev, uint16_t *sid);
 extern bool icnss_get_fw_direct_link_cap(struct device *dev);
 extern bool icnss_audio_is_direct_link_supported(struct device *dev);
 extern int icnss_audio_smmu_map(struct device *dev, phys_addr_t paddr,
@@ -284,7 +269,4 @@ extern int icnss_register_driver_async_data_cb(struct device *dev, void *cb_ctx,
 					       int (*cb)(void *ctx,
 					       uint16_t type, void *event,
 					       int event_len));
-extern struct kobject *icnss_get_wifi_kobj(struct device *dev);
-extern bool icnss_get_fw_cap(struct device *dev, enum icnss_fw_caps fw_cap);
-extern int icnss_get_iova_info(struct device *dev, u64 *addr, u64 *size);
 #endif /* _ICNSS_WLAN_H_ */

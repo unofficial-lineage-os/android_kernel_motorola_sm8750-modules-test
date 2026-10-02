@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * Copyright (c) 2017-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2024-2025 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2024 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #ifndef __ICNSS_QMI_H__
@@ -23,7 +23,6 @@ struct icnss_mem_seg {
 struct icnss_qmi_event_qdss_trace_save_data {
 	u32 total_size;
 	u32 mem_seg_len;
-	enum wlfw_mem_type_enum_v01 mem_type;
 	struct icnss_mem_seg mem_seg[QDSS_TRACE_SEG_LEN_MAX];
 	char file_name[QDSS_TRACE_FILE_NAME_MAX + 1];
 };
@@ -83,7 +82,7 @@ static inline int wlfw_rejuvenate_ack_send_sync_msg(struct icnss_priv *priv)
 	return 0;
 }
 static inline void icnss_ignore_fw_timeout(bool ignore) {}
-static int wlfw_send_fw_shutdown_msg(struct icnss_priv *priv)
+static int wlfw_send_modem_shutdown_msg(struct icnss_priv *priv)
 {
 	return 0;
 }
@@ -267,11 +266,6 @@ int icnss_get_feature_list(struct icnss_priv *priv,
 {
 	return 0;
 }
-
-int icnss_wlfw_xo_trim_result_send_sync(struct icnss_priv *priv, int result)
-{
-	return 0;
-}
 #else
 int wlfw_ind_register_send_sync_msg(struct icnss_priv *priv);
 int icnss_connect_to_fw_server(struct icnss_priv *priv, void *data);
@@ -285,7 +279,7 @@ int wlfw_dynamic_feature_mask_send_sync_msg(struct icnss_priv *priv,
 int icnss_clear_server(struct icnss_priv *priv);
 int wlfw_rejuvenate_ack_send_sync_msg(struct icnss_priv *priv);
 void icnss_ignore_fw_timeout(bool ignore);
-int wlfw_send_fw_shutdown_msg(struct icnss_priv *priv);
+int wlfw_send_modem_shutdown_msg(struct icnss_priv *priv);
 int wlfw_ini_send_sync_msg(struct icnss_priv *priv, uint8_t fw_log_mode);
 int wlfw_athdiag_read_send_sync_msg(struct icnss_priv *priv,
 					   uint32_t offset, uint32_t mem_type,
@@ -342,7 +336,6 @@ int icnss_load_aux(struct icnss_priv *priv);
 int icnss_set_feature_list(struct icnss_priv *priv,
 			   enum cnss_feature_v01 feature);
 int icnss_get_feature_list(struct icnss_priv *priv, u64 *feature_list);
-int icnss_wlfw_xo_trim_result_send_sync(struct icnss_priv *priv, int result);
 #endif
 
 #endif /* __ICNSS_QMI_H__*/

@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * Copyright (c) 2018-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2025 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #ifndef _CNSS_BUS_H
@@ -66,7 +66,6 @@ int cnss_bus_debug_reg_read(struct cnss_plat_data *plat_priv, u32 offset,
 			    u32 *val, bool raw_access);
 int cnss_bus_debug_reg_write(struct cnss_plat_data *plat_priv, u32 offset,
 			     u32 val, bool raw_access);
-void cnss_bus_soc_reset_cause_reg_dump(struct cnss_plat_data *plat_priv);
 int cnss_bus_get_iova(struct cnss_plat_data *plat_priv, u64 *addr, u64 *size);
 int cnss_bus_get_iova_ipa(struct cnss_plat_data *plat_priv, u64 *addr,
 			  u64 *size);
@@ -82,11 +81,4 @@ int cnss_bus_get_msi_assignment(struct cnss_plat_data *plat_priv,
 				int *num_vectors,
 				u32 *user_base_data,
 				u32 *base_vector);
-void cnss_bus_start_xdump_timer(struct cnss_plat_data *plat_priv);
-int cnss_bus_get_msi_address(struct cnss_plat_data *plat_priv,
-			     u32 *msi_addr_low, u32 *msi_addr_high);
-void cnss_bus_notify_mhi_error(struct cnss_plat_data *plat_priv);
-u8 **cnss_bus_collect_rddm_seg_info(struct cnss_plat_data *plat_priv,
-				    u32 *rddm_entries,
-				    u32 *rddm_seg_len);
 #endif /* _CNSS_BUS_H */

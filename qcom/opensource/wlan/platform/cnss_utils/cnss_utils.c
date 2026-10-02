@@ -158,7 +158,7 @@ enum cnss_utils_device_type cnss_utils_update_device_type(
 }
 EXPORT_SYMBOL(cnss_utils_update_device_type);
 
-static void
+void
 cnss_utils_status_update_user(enum cnss_status_type status_type,
 			      bool status)
 {
@@ -628,10 +628,9 @@ static int __init cnss_utils_init(void)
 {
 	struct cnss_utils_priv *priv = NULL;
 
-	if (!cnss_utils_is_valid_dt_node_found()) {
-		pr_err("device node not found!\n");
+	if (!cnss_utils_is_valid_dt_node_found())
 		return -ENODEV;
-	}
+
 	priv = kzalloc(sizeof(*priv), GFP_KERNEL);
 	if (!priv)
 		return -ENOMEM;

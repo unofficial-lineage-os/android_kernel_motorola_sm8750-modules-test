@@ -1,6 +1,5 @@
 # SPDX-License-Identifier: GPL-2.0-only
 
-include $(WLAN_PLATFORM_ROOT)/cnss2/sun_gki_defconfig
 ccflags-y += -Wmissing-prototypes
 
 ifeq ($(CONFIG_CNSS_OUT_OF_TREE),y)
@@ -26,5 +25,4 @@ cnss2-y += pci.o
 cnss2-y += power.o
 cnss2-y += genl.o
 cnss2-$(CONFIG_PCI_MSM) += pci_qcom.o
-cnss2-$(CONFIG_PCIE_QCOM_ECAM) += pci_qcom_ecam.o
 cnss2-$(CONFIG_CNSS2_QMI) += qmi.o coexistence_service_v01.o

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2018-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2025 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include "bus.h"
@@ -54,7 +54,6 @@ enum cnss_dev_bus_type cnss_get_bus_type(struct cnss_plat_data *plat_priv)
 	case MANGO_DEVICE_ID:
 	case PEACH_DEVICE_ID:
 	case COLOGNE_DEVICE_ID:
-	case FIG_DEVICE_ID:
 		return CNSS_BUS_PCI;
 	default:
 		cnss_pr_err("Unknown device_id: 0x%lx\n", plat_priv->device_id);
@@ -713,20 +712,6 @@ int cnss_bus_debug_reg_write(struct cnss_plat_data *plat_priv, u32 offset,
 	}
 }
 
-void cnss_bus_soc_reset_cause_reg_dump(struct cnss_plat_data *plat_priv)
-{
-	if (!plat_priv)
-		return;
-
-	switch (plat_priv->bus_type) {
-	case CNSS_BUS_PCI:
-		cnss_pci_soc_reset_cause_reg_dump(plat_priv->bus_priv);
-		break;
-	default:
-		cnss_pr_dbg("Unsupported bus type: %d\n", plat_priv->bus_type);
-	}
-}
-
 int cnss_bus_get_iova(struct cnss_plat_data *plat_priv, u64 *addr, u64 *size)
 {
 	if (!plat_priv)
@@ -842,75 +827,4 @@ void cnss_bus_disable_mhi_satellite_cfg(struct cnss_plat_data *plat_priv)
 	default:
 		cnss_pr_dbg("Unsupported bus type: %d\n", plat_priv->bus_type);
 	}
-}
-
-/**
- * cnss_bus_start_xdump_timer - Start timer for collecting BT dump over WLAN
- * @plat_priv: cnss platform data
- *
- * Return: None
- */
-void cnss_bus_start_xdump_timer(struct cnss_plat_data *plat_priv)
-{
-	if (!plat_priv)
-		return;
-
-	switch (plat_priv->bus_type) {
-	case CNSS_BUS_PCI:
-		cnss_pci_start_xdump_timer(plat_priv->bus_priv);
-		break;
-	default:
-		cnss_pr_dbg("Unsupported bus type: %d\n", plat_priv->bus_type);
-	}
-}
-
-int cnss_bus_get_msi_address(struct cnss_plat_data *plat_priv,
-			     u32 *msi_addr_low, u32 *msi_addr_high)
-{
-	if (!plat_priv)
-		return -ENODEV;
-
-	switch (plat_priv->bus_type) {
-	case CNSS_BUS_PCI:
-		return cnss_pci_get_msi_address(plat_priv->bus_priv,
-						msi_addr_low,
-						msi_addr_high);
-	default:
-		cnss_pr_err("Unsupported bus type: %d\n",
-			    plat_priv->bus_type);
-		return -EINVAL;
-	}
-}
-
-void cnss_bus_notify_mhi_error(struct cnss_plat_data *plat_priv)
-{
-	if (!plat_priv)
-		return;
-
-	switch (plat_priv->bus_type) {
-	case CNSS_BUS_PCI:
-		cnss_pci_notify_mhi_error(plat_priv->bus_priv);
-		break;
-	default:
-		cnss_pr_dbg("Unsupported bus type: %d\n", plat_priv->bus_type);
-	}
-}
-
-u8 **cnss_bus_collect_rddm_seg_info(struct cnss_plat_data *plat_priv,
-				    u32 *rddm_entries,
-				    u32 *rddm_seg_len)
-{
-	if (!plat_priv || !rddm_entries || !rddm_seg_len)
-		return NULL;
-
-	switch (plat_priv->bus_type) {
-	case CNSS_BUS_PCI:
-		return cnss_pci_collect_rddm_seg_info(plat_priv->bus_priv,
-						      rddm_entries,
-						      rddm_seg_len);
-	default:
-		cnss_pr_dbg("Unsupported bus type: %d\n", plat_priv->bus_type);
-	}
-
-	return NULL;
 }

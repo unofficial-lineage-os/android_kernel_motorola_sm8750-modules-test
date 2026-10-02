@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-/* Copyright (c) 2022-2025 Qualcomm Innovation Center, Inc. All rights reserved. */
+/* Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved. */
 
 #include "pci_platform.h"
 #include "debug.h"
@@ -215,9 +215,7 @@ static void cnss_pci_event_cb(struct msm_pcie_notify *notify)
 			return;
 		}
 
-		if (!plat_priv->xdump_helper.wl_over_bt_enabled)
-			plat_priv->ctrl_params.quirks |=
-				BIT(LINK_DOWN_SELF_RECOVERY);
+		plat_priv->ctrl_params.quirks |= BIT(LINK_DOWN_SELF_RECOVERY);
 
 		ret = msm_pcie_pm_control(MSM_PCIE_HANDLE_LINKDOWN,
 					  pci_dev->bus->number, pci_dev, NULL,
@@ -358,15 +356,14 @@ static int cnss_set_pci_link_status(struct cnss_pci_data *pci_priv,
 	return ret;
 }
 
-static int __cnss_set_pci_link(struct cnss_pci_data *pci_priv, bool link_up)
+int cnss_set_pci_link(struct cnss_pci_data *pci_priv, bool link_up)
 {
 	int ret = 0, retry = 0;
 	struct cnss_plat_data *plat_priv;
-	int sw_ctrl_gpio, wlan_sw_ctrl_gpio;
+	int sw_ctrl_gpio;
 
 	plat_priv = pci_priv->plat_priv;
 	sw_ctrl_gpio = plat_priv->pinctrl_info.sw_ctrl_gpio;
-	wlan_sw_ctrl_gpio = plat_priv->pinctrl_info.wlan_sw_ctrl_gpio;
 
 	cnss_pr_vdbg("%s PCI link\n", link_up ? "Resuming" : "Suspending");
 
@@ -375,9 +372,8 @@ retry:
 		ret = cnss_pci_set_link_up(pci_priv);
 		if (ret && retry++ < LINK_TRAINING_RETRY_MAX_TIMES) {
 			cnss_pr_dbg("Retry PCI link training #%d\n", retry);
-			cnss_pr_dbg("Values of SW_CTRL GPIO: %d WLAN_SW_CTRL_GPIO: %d\n",
-				    cnss_get_input_gpio_value(plat_priv, sw_ctrl_gpio),
-				    cnss_get_input_gpio_value(plat_priv, wlan_sw_ctrl_gpio));
+			cnss_pr_dbg("Value of SW_CTRL GPIO: %d\n",
+				    cnss_get_input_gpio_value(plat_priv, sw_ctrl_gpio));
 			if (pci_priv->pci_link_down_ind)
 				msleep(LINK_TRAINING_RETRY_DELAY_MS * retry);
 			goto retry;
@@ -386,8 +382,6 @@ retry:
 		/* Since DRV suspend cannot be done in Gen 3, set it to
 		 * Gen 2 if current link speed is larger than Gen 2.
 		 */
-
-		cnss_pci_get_link_status(pci_priv);
 		if (pci_priv->drv_connected_last &&
 		    pci_priv->cur_link_speed > PCI_EXP_LNKSTA_CLS_5_0GB)
 			cnss_set_pci_link_status(pci_priv, PCI_GEN2);
@@ -401,30 +395,6 @@ retry:
 	}
 
 	return ret;
-}
-
-int cnss_set_pci_link(struct cnss_pci_data *pci_priv, bool link_up)
-{
-	struct cnss_plat_data *plat_priv = pci_priv->plat_priv;
-
-	if (plat_priv->rc_pm_control) {
-		cnss_pr_dbg("RC PM is enabled, skipping link pm\n");
-		return 0;
-	}
-
-	return __cnss_set_pci_link(pci_priv, link_up);
-}
-
-int cnss_set_pci_pwrctrl(struct cnss_pci_data *pci_priv, bool power_on)
-{
-	struct cnss_plat_data *plat_priv = pci_priv->plat_priv;
-
-	if (!plat_priv->rc_pm_control) {
-		cnss_pr_dbg("RC PM is disabled, skipping power control\n");
-		return 0;
-	}
-
-	return __cnss_set_pci_link(pci_priv, power_on);
 }
 
 int cnss_pci_prevent_l1(struct device *dev)
@@ -515,11 +485,6 @@ void __cnss_pci_allow_l1(struct device *dev)
 	_cnss_pci_allow_l1(pci_priv);
 }
 
-bool cnss_pci_is_sync_probe(void)
-{
-	return true;
-}
-
 int cnss_pci_get_msi_assignment(struct cnss_pci_data *pci_priv)
 {
 	pci_priv->msi_config = &msi_config;
@@ -544,8 +509,7 @@ cnss_pci_smmu_dev_fault_handler(struct iommu_fault *fault,  void *data)
 
 	pci_priv->is_smmu_fault = true;
 	cnss_pci_update_status(pci_priv, CNSS_FW_DOWN);
-	if (cnss_force_fw_assert(&pci_priv->pci_dev->dev) == -EOPNOTSUPP)
-		CNSS_ASSERT(0);
+	cnss_force_fw_assert(&pci_priv->pci_dev->dev);
 
 	/* IOMMU driver requires -ENOSYS to print debug info. */
 	return -ENOSYS;
@@ -576,8 +540,7 @@ static int cnss_pci_smmu_fault_handler(struct iommu_domain *domain,
 
 	pci_priv->is_smmu_fault = true;
 	cnss_pci_update_status(pci_priv, CNSS_FW_DOWN);
-	if (cnss_force_fw_assert(&pci_priv->pci_dev->dev) == -EOPNOTSUPP)
-		CNSS_ASSERT(0);
+	cnss_force_fw_assert(&pci_priv->pci_dev->dev);
 
 	/* IOMMU driver requires -ENOSYS to print debug info. */
 	return -ENOSYS;
@@ -599,35 +562,11 @@ int cnss_pci_get_iommu_addr(struct cnss_pci_data *pci_priv,
 	struct device_node *of_node;
 	const u32 *maps;
 	const u32 *end;
-	int size, ret;
-	char iommu_name[CNSS_IOMMU_NODE_NAME_MAX_LEN];
-
-	if (!pci_priv->plat_priv) {
-		cnss_pr_err("plat_priv is NULL\n");
-		return -EINVAL;
-	}
-
-	ret = snprintf(iommu_name, CNSS_IOMMU_NODE_NAME_MAX_LEN,
-			"cnss_pci%d_iommu_region_partition",
-			pci_priv->plat_priv->rc_num);
-	if (ret < 0 || ret >= CNSS_IOMMU_NODE_NAME_MAX_LEN) {
-		cnss_pr_err("Failed to get iommu node rc:%d ret:%d\n",
-			    pci_priv->plat_priv->rc_num, ret);
-		return -EINVAL;
-	}
+	int size;
 
 	of_node = of_find_node_by_name(pci_dev->dev.of_node,
-				       iommu_name);
+				       "cnss_pci0_iommu_region_partition");
 	if (!of_node)
-		/*
-		 * fallback to check default name
-		 * cnss_pci0_iommu_region_partition
-		 * again,in case DTS name is not
-		 * matching to actual rc number
-		 */
-		of_node = of_find_node_by_name(pci_dev->dev.of_node,
-				"cnss_pci0_iommu_region_partition");
-	if(!of_node)
 		return -EINVAL;
 
 	maps = of_get_property(of_node, "iommu-addresses", &size);
@@ -686,36 +625,6 @@ int cnss_pci_get_iommu_addr(struct cnss_pci_data *pci_priv,
 }
 #endif
 
-static int cnss_pci_init_smmuv3(struct cnss_pci_data *pci_priv)
-{
-	struct pci_dev *pci_dev = pci_priv->pci_dev;
-	int ret = 0;
-
-	cnss_pr_dbg("Enabling SMMUV3 S1 stage\n");
-	pci_priv->iommu_domain = iommu_get_domain_for_dev(&pci_dev->dev);
-	if (!pci_priv->iommu_domain) {
-		cnss_pr_err("Failed to get IOMMU domain\n");
-		return -ENODEV;
-	}
-
-	cnss_register_iommu_fault_handler(pci_priv);
-	cnss_register_iommu_fault_handler_irq(pci_priv);
-
-	ret = cnss_pci_get_iommu_addr(pci_priv, NULL);
-	if (ret) {
-		cnss_pr_err("Invalid SMMUv3 size window, err = %d\n", ret);
-		return ret;
-	}
-
-	pci_priv->smmu_s1_enable = true;
-
-	cnss_pr_dbg("smmuv3_iova_start: %pa, smmu_iova_len: 0x%zx\n",
-		    &pci_priv->smmu_iova_start,
-		    pci_priv->smmu_iova_len);
-
-	return 0;
-}
-
 int cnss_pci_init_smmu(struct cnss_pci_data *pci_priv)
 {
 	struct pci_dev *pci_dev = pci_priv->pci_dev;
@@ -724,9 +633,6 @@ int cnss_pci_init_smmu(struct cnss_pci_data *pci_priv)
 	struct resource *res;
 	const char *iommu_dma_type;
 	int ret = 0;
-
-	if (of_property_read_bool(pci_dev->dev.of_node, "wlan-smmuv3"))
-		return cnss_pci_init_smmuv3(pci_priv);
 
 	of_node = of_parse_phandle(pci_dev->dev.of_node, "qcom,iommu-group", 0);
 	if (!of_node)
@@ -781,11 +687,49 @@ int _cnss_pci_get_reg_dump(struct cnss_pci_data *pci_priv,
 	return msm_pcie_reg_dump(pci_priv->pci_dev, buf, len);
 }
 
-void cnss_pci_init_warm_reset_params(struct cnss_pci_data *pci_priv)
+#if IS_ENABLED(CONFIG_ARCH_QCOM)
+/**
+ * cnss_pci_of_reserved_mem_device_init() - Assign reserved memory region
+ *                                          to given PCI device
+ * @pci_priv: driver PCI bus context pointer
+ *
+ * This function shall call corresponding of_reserved_mem_device* API to
+ * assign reserved memory region to PCI device based on where the memory is
+ * defined and attached to (platform device of_node or PCI device of_node)
+ * in device tree.
+ *
+ * Return: 0 for success, negative value for error
+ */
+int cnss_pci_of_reserved_mem_device_init(struct cnss_pci_data *pci_priv)
 {
+	struct device *dev_pci = &pci_priv->pci_dev->dev;
+	int ret;
+
+	/* Use of_reserved_mem_device_init_by_idx() if reserved memory is
+	 * attached to platform device of_node.
+	 */
+	ret = of_reserved_mem_device_init(dev_pci);
+	if (ret) {
+		if (ret == -EINVAL)
+			cnss_pr_vdbg("Ignore, no specific reserved-memory assigned\n");
+		else
+			cnss_pr_err("Failed to init reserved mem device, err = %d\n",
+				    ret);
+	}
+	if (dev_pci->cma_area)
+		cnss_pr_dbg("CMA area is %s\n",
+			    cma_get_name(dev_pci->cma_area));
+
+	return ret;
 }
 
-int cnss_pci_dev_warm_reset(struct cnss_pci_data *pci_priv, bool power_on)
+int cnss_pci_wake_gpio_init(struct cnss_pci_data *pci_priv)
 {
-	return -EOPNOTSUPP;
+	return 0;
 }
+
+void cnss_pci_wake_gpio_deinit(struct cnss_pci_data *pci_priv)
+{
+}
+#endif
+
