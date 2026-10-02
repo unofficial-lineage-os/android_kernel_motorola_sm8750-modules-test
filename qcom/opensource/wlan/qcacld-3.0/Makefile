@@ -19,7 +19,11 @@ ifeq ($(WLAN_ROOT_MODULE_SOURCE_PATH),)
 KBUILD_EXTRA := \
     CONFIG_IPA_OUT_OF_TREE=y \
     WLAN_PROFILE=sun_gki_peach-v2 \
-    MODNAME=qca_cld3_peach_v2
+    MODNAME=qca_cld3_peach_v2 \
+    CHIP_NAME=peach_v2
+# leap: CHIP_NAME sets MULTI_IF_NAME (Kbuild: CHIP_NAME ?= $(MODNAME)). Without it the driver looks for
+# wlan/qca_cld/qca_cld3_peach_v2/WCNSS_qcom_cfg.ini, fails "Failed to probe host driver", and Wi-Fi never
+# starts. Stock (kleaf, CONFIG_MULTI_IF_NAME="peach_v2" from sun_gki_peach-v2_defconfig) uses peach_v2.
 
 KBUILD_OPTIONS := WLAN_ROOT=$(shell cd $(KERNEL_SRC); readlink -e $(M))
 # leap: cross-module symbols (must follow the := reset above)
