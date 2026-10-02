@@ -20,7 +20,12 @@ KBUILD_EXTRA := \
     CONFIG_IPA_OUT_OF_TREE=y \
     WLAN_PROFILE=sun_gki_peach-v2 \
     MODNAME=qca_cld3_peach_v2 \
-    CHIP_NAME=peach_v2
+    CHIP_NAME=peach_v2 \
+    WLAN_CTRL_NAME=wlan
+# leap: WLAN_CTRL_NAME creates /dev/wlan, the driver-state control node the Wi-Fi HAL writes "ON"/"OFF" to
+# (WIFI_DRIVER_STATE_CTRL_PARAM). Without it the HAL fails "Failed to access driver state control param".
+# CHIP_NAME and WLAN_CTRL_NAME are the only string settings in sun_gki_peach-v2_defconfig; kleaf turns
+# them into defines itself, a make build must pass them.
 # leap: CHIP_NAME sets MULTI_IF_NAME (Kbuild: CHIP_NAME ?= $(MODNAME)). Without it the driver looks for
 # wlan/qca_cld/qca_cld3_peach_v2/WCNSS_qcom_cfg.ini, fails "Failed to probe host driver", and Wi-Fi never
 # starts. Stock (kleaf, CONFIG_MULTI_IF_NAME="peach_v2" from sun_gki_peach-v2_defconfig) uses peach_v2.
