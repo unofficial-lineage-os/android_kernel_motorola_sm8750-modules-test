@@ -1,3 +1,7 @@
+# leap: same fallback moto_sched uses — under kernel.mk nothing sets ANDROID_BUILD_TOP (kernel/motorola/ carries the symlink stubs)
+ifeq ($(ANDROID_BUILD_TOP),)
+ANDROID_BUILD_TOP := $(srctree)/..
+endif
 # NOTE: v2.0 is still dependent on QC. Gerrits are in progress for using
 # the same code for MTK, and this comment will be removed once this is
 # done.

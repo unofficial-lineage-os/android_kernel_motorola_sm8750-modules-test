@@ -1,3 +1,7 @@
+# leap: same fallback moto_sched uses — under kernel.mk nothing sets ANDROID_BUILD_TOP (kernel/motorola/ carries the symlink stubs)
+ifeq ($(ANDROID_BUILD_TOP),)
+ANDROID_BUILD_TOP := $(srctree)/..
+endif
 # add -Wall to try to catch everything we can.
 #MTK have kernel-4.14 and kernel-4.19 and kernel-5.10 in the same dir,so we can't use below method
 #KERNEL_DIR_PATH = $(shell find $(TOP)/kernel* -type d -name  "kernel-*" | head -1)

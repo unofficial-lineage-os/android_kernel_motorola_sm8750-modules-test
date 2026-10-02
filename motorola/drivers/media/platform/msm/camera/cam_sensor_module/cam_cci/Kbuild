@@ -1,3 +1,7 @@
+# leap: same fallback moto_sched uses — under kernel.mk nothing sets ANDROID_BUILD_TOP (kernel/motorola/ carries the symlink stubs)
+ifeq ($(ANDROID_BUILD_TOP),)
+ANDROID_BUILD_TOP := $(srctree)/..
+endif
 HAVE_KERNEL_4_19 = $(shell test -d $(ANDROID_BUILD_TOP)/kernel/msm-4.19 && echo 1)
 
 HAVE_KERNEL_5_4 = $(shell test -d $(ANDROID_BUILD_TOP)/kernel/msm-5.4 && echo 1)
