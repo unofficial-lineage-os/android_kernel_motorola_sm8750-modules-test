@@ -485,10 +485,6 @@ config FEATURE_STATION_INFO
 	bool "Enable FEATURE_STATION_INFO"
 	default n
 
-config WLAN_BOOST_CPU_FREQ_IN_ROAM
-	bool "Enable CPU boosting during roam"
-	default n
-
 config FEATURE_STATS_EXT
 	bool "Enable FEATURE_STATS_EXT"
 	default n
@@ -496,10 +492,6 @@ config FEATURE_STATS_EXT
 config FEATURE_STATS_EXT_V2
 	bool "Enable FEATURE_STATS_EXT_V2"
 	default n
-
-config DP_FEATURE_TX_PAGE_POOL
-       bool "enable DP_FEATURE_TX_PAGE_POOL"
-       default n
 
 config FEATURE_TSO
 	bool "Enable TCP Segmentation Offload"
@@ -546,10 +538,6 @@ config FEATURE_WLAN_SCAN_PNO
 	bool "Enable FEATURE_WLAN_SCAN_PNO"
 	default n
 
-config FEATURE_WLAN_ZERO_POWER_SCAN
-	bool "Enable Zero Power Scan"
-	default n
-
 config WALT_GET_CPU_TAKEN_SUPPORT
 	bool "enable WALT_GET_CPU_TAKEN_SUPPORT"
 	default n
@@ -576,10 +564,6 @@ config FOURTH_CONNECTION
 
 config FW_THERMAL_THROTTLE
 	bool "Enable FW_THERMAL_THROTTLE"
-	default n
-
-config WLAN_DDR_BW_MITIGATION
-	bool "enable WLAN_DDR_BW_MITIGATION"
 	default n
 
 config GET_DRIVER_MODE
@@ -1905,12 +1889,6 @@ config WLAN_FEATURE_LATENCY_SENSITIVE_REO
 	bool "enable WLAN_FEATURE_LATENCY_SENSITIVE_REO"
 	default n
 
-config WLAN_HAPS_ENABLE
-	bool "Enable CONFIG_WLAN_HAPS_ENABLE"
-	default n
-	help
-	This option enables the Host Aware Power Save feature.
-
 config WLAN_CTRL_NAME
 	string "Enable CONFIG_WLAN_CTRL_NAME"
 	default "wlan"
@@ -1961,10 +1939,6 @@ config WLAN_DP_LOCAL_PKT_CAPTURE
 
 config FEATURE_ML_LOCAL_PKT_CAPTURE
 	bool "Enable CONFIG_FEATURE_ML_LOCAL_PKT_CAPTURE"
-	default n
-
-config WLAN_LOCAL_PKT_CAPTURE_SUBFILTER
-	bool "Enable CONFIG_WLAN_LOCAL_PKT_CAPTURE_SUBFILTER"
 	default n
 
 config DP_TX_PACKET_INSPECT_FOR_ILP
@@ -2220,10 +2194,6 @@ config IPA_OPT_WIFI_DP_CTRL
 	depends on IPA_OPT_WIFI_DP
 	default n
 
-config IPA_WDI3_PENDING_BUFF_REPORT
-        bool "Enable IPA_WDI3_PENDING_BUFF_REPORT"
-        default n
-
 config DP_RX_MSDU_DONE_FAIL_HISTORY
         bool "Enable DP_RX_MSDU_DONE_FAIL_HISTORY"
         default n
@@ -2436,54 +2406,4 @@ config CHIP_VERSION
         int "Enable CHIP_VERSION"
         default 1
 endif
-
-config CNSS_WCN7760
-	bool "Enable CNSS_WCN7760"
-	default n
-
-config CNSS_QCC2072
-	bool "Enable CNSS_QCC2072"
-	default n
-
-config QCA_WIFI_QCC2072
-	bool "Enable QCA_WIFI_QCC2072"
-	default n
-
-config QCC2072_HEADERS_DEF
-	bool "Enable QCC2072_HEADERS_DEF"
-	default n
-
-if CNSS_QCC2072
-config CFG_BMISS_OFFLOAD_MAX_VDEV
-        int "Enable CFG_BMISS_OFFLOAD_MAX_VDEV"
-        default 4
-
-config CFG_MAX_STA_VDEVS
-        int "Enable CFG_MAX_STA_VDEVS"
-        default 4
-
-config DP_RX_BUFFER_POOL_ALLOC_THRES
-        int "Enable DP_RX_BUFFER_POOL_ALLOC_THRES"
-        default 5
-
-config DP_RX_BUFFER_POOL_SIZE
-        int "Enable DP_RX_BUFFER_POOL_SIZE"
-        default 128
-
-config DP_RX_REFILL_BUFF_POOL_SIZE
-        int "Enable DP_RX_REFILL_BUFF_POOL_SIZE"
-        default 2048
-
-config DP_RX_REFILL_THRD_THRESHOLD
-        int "Enable DP_RX_REFILL_THRD_THRESHOLD"
-        default 512
-
-config WLAN_UMAC_MLO_MAX_DEV
-        int "Enable WLAN_UMAC_MLO_MAX_DEV"
-        default 3
-endif
-
-config DELAYED_REG_FORCE_WRITE
-	bool "Enable Delayed Reg force write"
-	default n
 endif # QCA_CLD_WLAN

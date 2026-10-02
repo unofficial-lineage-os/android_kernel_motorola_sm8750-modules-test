@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2018-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2023-2025 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2023-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -198,8 +198,6 @@ uint8_t *hdd_auth_type_str(uint32_t auth_type)
 		return "OPEN SYSTEM";
 	case eCSR_AUTH_TYPE_SHARED_KEY:
 		return "SHARED KEY";
-	case eCSR_AUTH_TYPE_SAE_EXT_KEY:
-		return "SAE EXT";
 	case eCSR_AUTH_TYPE_SAE:
 		return "SAE";
 	case eCSR_AUTH_TYPE_AUTOSWITCH:
@@ -251,8 +249,6 @@ uint8_t *hdd_auth_type_str(uint32_t auth_type)
 		return "SUITEB EAP SHA384";
 	case eCSR_AUTH_TYPE_OSEN:
 		return "OSEN";
-	case eCSR_AUTH_TYPE_FT_SAE_EXT_KEY:
-		return "FT SAE EXT";
 	case eCSR_AUTH_TYPE_FT_SAE:
 		return "FT SAE";
 	case eCSR_AUTH_TYPE_FT_SUITEB_EAP_SHA384:
@@ -424,6 +420,18 @@ static ssize_t wlan_hdd_connect_info(struct hdd_adapter *adapter, uint8_t *buf,
 		if(!is_legacy && conn_info->ieee_link_id == WLAN_INVALID_LINK_ID)
 			continue;
 
+		if (hdd_cm_is_vdev_roaming(link_info)) {
+			len = scnprintf(buf + length, buf_avail_len - length,
+					"Roaming is in progress");
+			if (len <= 0)
+				return length;
+
+			length += len;
+		}
+
+		tx_bit_rate = cfg80211_calculate_bitrate(&conn_info->txrate);
+		rx_bit_rate = cfg80211_calculate_bitrate(&conn_info->rxrate);
+
 		if (!is_legacy) {
 			len = scnprintf(buf + length, buf_avail_len - length,
 					"\nlink_id: %d\n",
@@ -438,11 +446,8 @@ static ssize_t wlan_hdd_connect_info(struct hdd_adapter *adapter, uint8_t *buf,
 			}
 
 			if (link_info->vdev_id == WLAN_INVALID_VDEV_ID &&
-			    conn_info->ieee_link_id != WLAN_INVALID_LINK_ID) {
+			    conn_info->ieee_link_id != WLAN_INVALID_LINK_ID)
 				is_standby = true;
-			} else {
-				is_standby = false;
-			}
 
 			len = scnprintf(buf + length, buf_avail_len - length,
 					"stand-by link: %d\n",
@@ -456,21 +461,6 @@ static ssize_t wlan_hdd_connect_info(struct hdd_adapter *adapter, uint8_t *buf,
 				return buf_avail_len;
 			}
 		}
-
-		/* Avoid to check roaming in progress for standby. Standyby link
-		 * don't have valid vdev.
-		 */
-		if (!is_standby && hdd_cm_is_vdev_roaming(link_info)) {
-			len = scnprintf(buf + length, buf_avail_len - length,
-					"Roaming is in progress");
-			if (len <= 0)
-				return length;
-
-			length += len;
-		}
-
-		tx_bit_rate = cfg80211_calculate_bitrate(&conn_info->txrate);
-		rx_bit_rate = cfg80211_calculate_bitrate(&conn_info->rxrate);
 
 		len = scnprintf(buf + length, buf_avail_len - length,
 				"freq: %u\n"

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+ * Copyright (c) 2023-2024, Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -336,10 +336,6 @@
 #define FEATURE_HTC_CREDIT_HISTORY (1)
 #endif
 
-#ifdef CONFIG_FEATURE_WLAN_ZERO_POWER_SCAN
-#define FEATURE_WLAN_ZERO_POWER_SCAN (1)
-#endif
-
 #ifdef CONFIG_WLAN_FEATURE_P2P_DEBUG
 #define WLAN_FEATURE_P2P_DEBUG (1)
 #endif
@@ -660,9 +656,6 @@
 #endif
 #ifdef CONFIG_WLAN_THERMAL_MULTI_CLIENT_SUPPORT
 #define FEATURE_WPSS_THERMAL_MITIGATION (1)
-#endif
-#ifdef CONFIG_WLAN_DDR_BW_MITIGATION
-#define WLAN_DDR_BW_MITIGATION (1)
 #endif
 #ifdef CONFIG_WLAN_SYSFS_DP_STATS
 #define WLAN_SYSFS_DP_STATS (1)
@@ -3028,6 +3021,9 @@
 #define WLAN_BCN_RATECODE_ENABLE (1)
 #endif
 
+/* move utags build flags from kbuild to here */
+#define MOTO_UTAGS_MAC (1)
+
 #ifdef CONFIG_WLAN_SUPPORT_SERVICE_CLASS
 #define WLAN_SUPPORT_SERVICE_CLASS (1)
 #endif
@@ -3042,10 +3038,6 @@
 
 #ifdef CONFIG_WLAN_FEATURE_LATENCY_SENSITIVE_REO
 #define WLAN_FEATURE_LATENCY_SENSITIVE_REO (1)
-#endif
-
-#ifdef CONFIG_WLAN_HAPS_ENABLE
-#define WLAN_HAPS_ENABLE (1)
 #endif
 
 #ifdef CONFIG_QDF_TIMER_MULTIPLIER_FRAC_ENABLE
@@ -3139,33 +3131,12 @@
 #define DP_FEATURE_RX_BUFFER_RECYCLE (1)
 #endif
 
-#if defined(CONFIG_PAGE_POOL) && defined(CONFIG_DP_FEATURE_TX_PAGE_POOL)
-#define DP_FEATURE_TX_PAGE_POOL (1)
-#define WLAN_DP_ENABLE_SW_TSO (1)
-#endif
-
 #ifdef CONFIG_DP_FTM_MODE_SKIP_WBM_RING_INIT
 #define DP_FTM_MODE_SKIP_WBM_RING_INIT (1)
 #endif
 
 #ifdef CONFIG_FEATURE_WLAN_SUPPORT_USD
 #define FEATURE_WLAN_SUPPORT_USD (1)
-#endif
-
-#ifdef CONFIG_WLAN_LOCAL_PKT_CAPTURE_SUBFILTER
-#define WLAN_LOCAL_PKT_CAPTURE_SUBFILTER (1)
-#endif
-
-#ifdef CONFIG_WLAN_BOOST_CPU_FREQ_IN_ROAM
-#define WLAN_BOOST_CPU_FREQ_IN_ROAM (1)
-#endif
-
-#ifdef CONFIG_IPA_WDI3_PENDING_BUFF_REPORT
-#define IPA_WDI3_PENDING_BUFF_REPORT (1)
-#endif
-
-#ifdef CONFIG_DELAYED_REG_FORCE_WRITE
-#define DELAYED_REG_FORCE_WRITE (1)
 #endif
 
 #endif /* CONFIG_TO_FEATURE_H */

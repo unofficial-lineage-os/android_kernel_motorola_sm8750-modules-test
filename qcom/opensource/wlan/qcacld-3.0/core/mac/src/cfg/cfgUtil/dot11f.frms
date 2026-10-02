@@ -1,7 +1,7 @@
 /*
  * Copyright (c) 2006-2007, 2014-2018, 2020-2021 The Linux Foundation.
  * All rights reserved.
- * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+ * Copyright (c) 2021-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -123,7 +123,6 @@ const EID_RNR_IE                     = 201;
 const EID_VENDOR_SPECIFIC            = 221;
 const EID_FILS_INDICATION            = 240;
 const EID_FRAGMENT_IE                = 242;
-const EID_RSNXE                      = 244;
 /**
  * Extended Element ID
  *
@@ -2624,17 +2623,6 @@ IE transmit_power_env (EID_TRANSMIT_POWER_ENVELOPE)
                }
                max_tx_psd_power[15];
        }
-       ext_max_tx_power_addn_reg_eirp (max_tx_pwr_interpret IS 4) {
-	       max_tx_power_for_320, 1;
-       }
-       ext_max_tx_power_addn_reg_psd (max_tx_pwr_interpret IS 5) {
-               //ext_transmit_psd_info, 1;
-               {
-                       ext_count: 4;
-                       reserved: 4;
-               }
-               max_tx_psd_power[15];
-       }
 
     };
 }
@@ -2658,7 +2646,7 @@ IE bw_ind_element (EID_EXTN_ID_ELEMENT) OUI (0x87)
 IE ChannelSwitchWrapper (EID_CHANNEL_SWITCH_WRAPPER)
 {
     OPTIE IE  WiderBWChanSwitchAnn;
-    OPTIE transmit_power_env[0..8];
+    OPTIE IE  transmit_power_env;
     OPTIE IE  bw_ind_element;
 }
 
@@ -3703,18 +3691,6 @@ IE bss_color_change (EID_EXTN_ID_ELEMENT) OUI (0x2A)
     }
 }
 
-IE reg_connect (EID_EXTN_ID_ELEMENT) OUI (0x89)
-{
-    //regulatory connectivity field
-    {
-        indoor_ap_valid: 1;
-        indoor_ap_support: 1;
-        sp_ap_valid: 1;
-        sp_ap_support: 1;
-        reserved: 4;
-    }
-}
-
 /////////////////////////////////////////////////////////////////////////////
 //                                MULTIIEs                                 //
 /////////////////////////////////////////////////////////////////////////////
@@ -4072,16 +4048,6 @@ IE t2lm_ie (EID_EXTN_ID_ELEMENT) OUI (0x6D)
     data[2..255];
 }
 
-IE RSNXEOpaque (EID_RSNXE)
-{
-    data[0..253];
-}
-
-IE MSCSEXTOpaque (EID_EXTN_ID_ELEMENT) OUI (0x58)
-{
-    data[0..253];
-}
-
 /////////////////////////////////////////////////////////////////////////////
 // Frames
 
@@ -4105,7 +4071,7 @@ FRAME Beacon                              // C.f. Sec. 7.2.3.1
     OPTIE  TPCReport;
     OPTIE  ERPInfo;
     OPTIE  ExtSuppRates;
-    OPTIE  RSNOpaque;
+    OPTIE  RSN;
     OPTIE  QBSSLoad;
     OPTIE  EDCAParamSet;
     OPTIE  QOSCapsAp;
@@ -4291,7 +4257,7 @@ FRAME BeaconIEs
     OPTIE  TPCReport;
     OPTIE  ERPInfo;
     OPTIE  ExtSuppRates;
-    OPTIE  RSNOpaque;
+    OPTIE  RSN;
     OPTIE  QBSSLoad;
     OPTIE  EDCAParamSet;
     OPTIE  QOSCapsAp;
@@ -4378,8 +4344,6 @@ FRAME AssocRequest                        // 7.2.3.4
     OPTIE  fils_hlp_container;
     OPTIE  bss_max_idle_period;
     OPTIE  FTInfo;
-    OPTIE  RSNXEOpaque;
-    OPTIE  MSCSEXTOpaque;
     OPTIE  he_cap;
     OPTIE  he_6ghz_band_cap;
 
@@ -4391,7 +4355,6 @@ FRAME AssocRequest                        // 7.2.3.4
     OPTIE  eht_cap;
     OPTIE  mlo_ie;
     OPTIE  t2lm_ie[0..2];
-    OPTIE  reg_connect;
 
     OPTIE  WPAOpaque;
     OPTIE  WMMCaps;
@@ -4498,7 +4461,6 @@ FRAME ReAssocRequest                      // 7.2.3.6
     OPTIE  eht_cap;
     OPTIE  mlo_ie;
     OPTIE  t2lm_ie[0..2];
-    OPTIE  reg_connect;
 
     OPTIE  WPAOpaque;
     OPTIE  WMMCaps;
@@ -4582,7 +4544,6 @@ FRAME ProbeRequest                        // 7.2.3.8
     OPTIE  eht_cap;
     OPTIE  mlo_ie;
 
-    OPTIE  reg_connect;
     OPTIE  WscProbeReq;
     OPTIE  WFATPC;
     OPTIE  P2PProbeReq;

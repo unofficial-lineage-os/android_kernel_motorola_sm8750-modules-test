@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2020-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2025 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -126,9 +126,6 @@ QDF_STATUS if_mgr_connect_active(struct wlan_objmgr_vdev *vdev,
 		return QDF_STATUS_E_FAILURE;
 
 	if (!wlan_vdev_mlme_is_mlo_link_vdev(vdev)) {
-		/* Check STA+SAP+SAP support by PCL */
-		if (!policy_mgr_validate_sta_start(vdev))
-			return QDF_STATUS_E_INVAL;
 		/*
 		 * In case of STA+STA concurrency, firmware might try to roam
 		 * to same AP where host is trying to do association on the other
@@ -203,9 +200,6 @@ QDF_STATUS if_mgr_connect_complete(struct wlan_objmgr_vdev *vdev,
 		policy_mgr_check_concurrent_intf_and_restart_sap(psoc,
 				wlan_util_vdev_mgr_get_acs_mode_for_vdev(vdev));
 
-	if (QDF_IS_STATUS_SUCCESS(status))
-		policy_mgr_trigger_roam_for_sta_sap_mcc_non_dbs(psoc);
-
 	wlan_ll_sap_switch_bearer_on_sta_connect_complete(psoc, vdev_id);
 
 	return QDF_STATUS_SUCCESS;
@@ -233,8 +227,7 @@ QDF_STATUS if_mgr_disconnect_start(struct wlan_objmgr_vdev *vdev,
 	qdf_runtime_pm_prevent_suspend(&mlme_priv->disconnect_runtime_lock);
 
 	if (mlo_mgr_is_link_switch_in_progress(vdev))
-		wlan_tdls_delete_all_peers(vdev,
-					   TDLS_PEER_DEL_REASON_VDEV_REPURPOSE);
+		wlan_tdls_delete_all_peers(vdev);
 
 	return QDF_STATUS_SUCCESS;
 }
@@ -303,7 +296,6 @@ if_mgr_sta_csa_complete(struct wlan_objmgr_vdev *vdev,
 		return QDF_STATUS_E_FAILURE;
 
 	wlan_tdls_notify_channel_switch_complete(psoc, wlan_vdev_get_id(vdev));
-	policy_mgr_trigger_roam_for_sta_sap_mcc_non_dbs(psoc);
 
 	return QDF_STATUS_SUCCESS;
 }

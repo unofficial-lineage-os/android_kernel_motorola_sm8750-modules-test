@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2012-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2025 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -2131,26 +2131,10 @@ void sme_stop_beacon_report(mac_handle_t mac_handle,
 
 #endif
 
-/**
- * sme_add_beacon_filter() - set the beacon filter configuration
- * @mac_handle: The handle returned by macOpen
- * @vdev_id: vdev id
- * @ie_map: bitwise array of IEs
- *
- * Return: Return QDF_STATUS, otherwise appropriate failure code
- */
 QDF_STATUS sme_add_beacon_filter(mac_handle_t mac_handle,
-				 uint8_t vdev_id, uint32_t *ie_map);
-
-/**
- * sme_remove_beacon_filter() - set the beacon filter configuration
- * @mac_handle: The handle returned by macOpen
- * @vdev_id: vdev id
- *
- * Return: Return QDF_STATUS, otherwise appropriate failure code
- */
+				 uint32_t session_id, uint32_t *ie_map);
 QDF_STATUS sme_remove_beacon_filter(mac_handle_t mac_handle,
-				    uint8_t vdev_id);
+				    uint32_t session_id);
 
 #ifdef FEATURE_WLAN_APF
 /**
@@ -3216,17 +3200,6 @@ int sme_set_auto_rate_ldpc(mac_handle_t mac_handle, uint8_t session_id,
 			   uint8_t ldpc_disable);
 
 /**
- * sme_set_auto_rate_stbc() - Sets STBC for auto rate
- * @mac_handle: Opaque handle to the global MAC context
- * @session_id: SME session id
- * @stbc_disable: STBC configuration value
- *
- * Return: 0 on success else err code
- */
-int sme_set_auto_rate_stbc(mac_handle_t mac_handle, uint8_t session_id,
-			   uint8_t stbc_disable);
-
-/**
  * sme_set_auto_rate_he_ltf() - Sets HE LTF for auto rate
  * @mac_handle: Opaque handle to the global MAC context
  * @session_id: SME session id
@@ -3242,11 +3215,13 @@ int sme_set_auto_rate_he_ltf(mac_handle_t mac_handle, uint8_t session_id,
  * sme_update_tgt_eht_cap() - sets the EHT caps to pmac
  * @mac_handle: Pointer to MAC handle
  * @cfg: Pointer to WMA target CFG
+ * @eht_cap_ini: Pointer to EHT CAP configured by INI
  *
  * Return: None
  */
 void sme_update_tgt_eht_cap(mac_handle_t mac_handle,
-			    struct wma_tgt_cfg *cfg);
+			    struct wma_tgt_cfg *cfg,
+			    tDot11fIEeht_cap *eht_cap_ini);
 
 /**
  * sme_update_eht_cap_nss() - sets the nss based on user request
@@ -3306,7 +3281,8 @@ int sme_update_eht_scs_traffic_desc_support(mac_handle_t mac_handle,
 					    uint8_t cfg_val);
 #else
 static inline void sme_update_tgt_eht_cap(mac_handle_t mac_handle,
-					  struct wma_tgt_cfg *cfg)
+					  struct wma_tgt_cfg *cfg,
+					  tDot11fIEeht_cap *eht_cap_ini)
 {}
 
 static inline void sme_update_eht_cap_nss(mac_handle_t mac_handle,
@@ -3979,14 +3955,14 @@ void sme_set_mlo_assoc_link_band(mac_handle_t mac_handle, uint8_t vdev_id,
  * @mac_handle: Opaque handle to the global MAC context
  * @session_id: session id
  * @num_links: number of links to be forced active
- * @active_link_addr: link mac address of (up to WLAN_MAX_ML_BSS_LINKS) links to
- * be forced active
+ * @active_link_addr: link mac address of (up to WLAN_MLO_MAX_VDEVS) links to be
+ * forced active
  *
  * Return: void
  */
 void sme_activate_mlo_links(mac_handle_t mac_handle, uint8_t session_id,
 			    uint8_t num_links,
-			    struct qdf_mac_addr *active_link_addr);
+			    struct qdf_mac_addr active_link_addr[WLAN_MLO_MAX_VDEVS]);
 
 /**
  * sme_update_eht_caps() - Update the session EHT caps
@@ -4061,7 +4037,7 @@ int sme_send_vdev_pause_for_bcn_period(mac_handle_t mac_handle,
 static inline
 void sme_activate_mlo_links(mac_handle_t mac_handle, uint8_t session_id,
 			    uint8_t num_links,
-			    struct qdf_mac_addr *active_link_addr)
+			    struct qdf_mac_addr active_link_addr[2])
 {
 }
 #endif

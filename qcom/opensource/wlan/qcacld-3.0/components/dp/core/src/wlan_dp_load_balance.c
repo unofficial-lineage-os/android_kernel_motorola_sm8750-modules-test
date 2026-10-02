@@ -139,9 +139,6 @@ wlan_dp_lb_irq_balance_handler(struct wlan_dp_psoc_context *dp_ctx,
 							 weightages[i].ring_id);
 		if (grp_id < 0) {
 			dp_err("failed to get grp id");
-			i++;
-			if (i >= MAX_REO_DEST_RINGS)
-				break;
 			continue;
 		}
 
@@ -270,9 +267,6 @@ wlan_dp_is_load_balance_needed(struct wlan_dp_lb_data *lb_data,
 
 		dp_info("CPU%d CWW:%d AWW:%d", load->cpu_id,
 			curr_wtg, load->allowed_wtg);
-
-		if (!curr_wtg && !load->allowed_wtg)
-			continue;
 
 		/* check whether the current wlan weightage is +-10% of the
 		 * allowed weightage. If not, load balance is needed.
@@ -435,17 +429,13 @@ static inline void
 wlan_dp_lb_get_update_cpu_mask(struct wlan_dp_lb_data *lb_data,
 			       int max_num_cpus,
 			       qdf_cpu_mask *audio_taken_cpus,
-			       qdf_cpu_mask *updated_cpu_mask,
-			       qdf_cpu_mask *banned_cpu_mask)
+			       qdf_cpu_mask *updated_cpu_mask)
 {
 	int num_cpus = 0;
 	int cpu;
 
 	qdf_cpumask_clear(updated_cpu_mask);
 	qdf_for_each_online_cpu(cpu) {
-		if (qdf_cpumask_test_cpu(cpu, banned_cpu_mask))
-			continue;
-
 		if (qdf_cpumask_test_cpu(cpu, audio_taken_cpus))
 			continue;
 
@@ -480,7 +470,6 @@ wlan_dp_lb_check_for_cpu_mask_change(struct wlan_dp_psoc_context *dp_ctx)
 	qdf_cpu_mask audio_taken_cpus;
 	qdf_cpu_mask updated_cpu_mask;
 	uint64_t cur_time = qdf_sched_clock();
-	qdf_cpu_mask banned_cpu_mask = {0};
 
 	if (!hif_affinity_mgr_supported(dp_ctx->hif_handle))
 		return;
@@ -510,8 +499,7 @@ wlan_dp_lb_check_for_cpu_mask_change(struct wlan_dp_psoc_context *dp_ctx)
 		wlan_dp_lb_get_update_cpu_mask(lb_data,
 					       NUM_CPUS_FOR_LOAD_BALANCE,
 					       &audio_taken_cpus,
-					       &updated_cpu_mask,
-					       &banned_cpu_mask);
+					       &updated_cpu_mask);
 		if (qdf_cpumask_empty(&updated_cpu_mask))
 			qdf_cpumask_copy(&lb_data->preferred_cpu_mask,
 					 &audio_taken_cpus);
@@ -519,7 +507,7 @@ wlan_dp_lb_check_for_cpu_mask_change(struct wlan_dp_psoc_context *dp_ctx)
 			qdf_cpumask_copy(&lb_data->preferred_cpu_mask,
 					 &updated_cpu_mask);
 
-		dp_debug("Audio taken cpus old:%*pbl new:%*pbl updated_cpumask:%*pbl",
+		dp_debug("Audio taken cpus old:%*pbl new:%*pbl updated_cpumask:%pbl",
 			 qdf_cpumask_pr_args(&lb_data->audio_taken_cpumask),
 			 qdf_cpumask_pr_args(&audio_taken_cpus),
 			 qdf_cpumask_pr_args(&lb_data->preferred_cpu_mask));
@@ -706,55 +694,33 @@ wlan_dp_lb_update_cpu_mask(void *context, uint32_t cpu, bool cpu_up)
 	qdf_cpu_mask *preferred_mask = &lb_data->preferred_cpu_mask;
 	qdf_cpu_mask *cur_cpu_mask = &lb_data->curr_cpu_mask;
 	qdf_cpu_mask updated_cpu_mask;
-	qdf_cpu_mask banned_cpu_mask = {0};
 
-	dp_info("cpu %u cpu_up %d LB_CPU_masks [cur:%*pbl preferred:%*pbl] preferred_mask_change_by_cpuhp %d",
-		cpu, cpu_up, qdf_cpumask_pr_args(cur_cpu_mask),
-		qdf_cpumask_pr_args(preferred_mask),
-		lb_data->preferred_mask_change_by_cpuhp);
-	if (cpu_up) {
-		/*
-		 * Our preferred_mask not having any CPUs from default_mask can
-		 * happen when all the CPUs in the default_mask went offline.
-		 *
-		 * Our target is to stay on the CPUs indicated by default_mask.
-		 * If any CPUs from the default_mask is coming up,
-		 * move the load handling to this CPU.
-		 */
-		if (!qdf_cpumask_test_cpu(cpu, preferred_mask)) {
-			/*
-			 * If the CPU coming up is one from default_mask,
-			 * we need to switch to this CPU for all load handling.
-			 */
-			if (qdf_cpumask_test_cpu(cpu, &lb_data->def_cpumask) &&
-			    lb_data->preferred_mask_change_by_cpuhp) {
-				qdf_cpumask_copy(preferred_mask,
-						 &lb_data->def_cpumask);
-				qdf_cpumask_clear(cur_cpu_mask);
-				qdf_cpumask_set_cpu(cpu, cur_cpu_mask);
-				lb_data->preferred_mask_change_by_cpuhp = false;
-				goto load_balance;
-			}
-
-			return;
+	/* might moved out of default cpumask previously due to all cpus in
+	 * default cpumask went offline, move back to default cpumask if any of
+	 * the cpu of default cpumask comes online.
+	 */
+	if (!qdf_cpumask_test_cpu(cpu, preferred_mask)) {
+		if (qdf_cpumask_test_cpu(cpu, &lb_data->def_cpumask) &&
+		    lb_data->preferred_mask_change_by_cpuhp) {
+			qdf_cpumask_copy(preferred_mask, &lb_data->def_cpumask);
+			qdf_cpumask_clear(cur_cpu_mask);
+			qdf_cpumask_set_cpu(cpu, cur_cpu_mask);
+			lb_data->preferred_mask_change_by_cpuhp = false;
+			goto load_balance;
 		}
 
-		/* Enable this CPU only if its part of our preferred_mask */
+		return;
+	}
+
+	if (cpu_up) {
 		qdf_cpumask_set_cpu(cpu, cur_cpu_mask);
 	} else {
 		qdf_cpumask_clear_cpu(cpu, cur_cpu_mask);
 		if (qdf_cpumask_empty(cur_cpu_mask)) {
-			/*
-			 * Current CPU for which cpu_up=0 will be going down,
-			 * hence do not select this CPU for the updated
-			 * CPU mask
-			 */
-			qdf_cpumask_set_cpu(cpu, &banned_cpu_mask);
 			wlan_dp_lb_get_update_cpu_mask(lb_data,
 						       NUM_CPUS_FOR_LOAD_BALANCE,
 						       &lb_data->audio_taken_cpumask,
-						       &updated_cpu_mask,
-						       &banned_cpu_mask);
+						       &updated_cpu_mask);
 
 			if (qdf_cpumask_intersects(preferred_mask,
 						   &lb_data->def_cpumask) &&
@@ -770,10 +736,6 @@ wlan_dp_lb_update_cpu_mask(void *context, uint32_t cpu, bool cpu_up)
 load_balance:
 	wlan_dp_lb_set_default_affinity(dp_ctx);
 	wlan_dp_lb_handler(dp_ctx);
-	dp_info("Updated LB_CPU_masks [cur:%*pbl preferred:%*pbl] preferred_mask_change_by_cpuhp %d",
-		qdf_cpumask_pr_args(cur_cpu_mask),
-		qdf_cpumask_pr_args(preferred_mask),
-		lb_data->preferred_mask_change_by_cpuhp);
 }
 
 static void

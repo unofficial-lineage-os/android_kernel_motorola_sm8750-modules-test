@@ -1,7 +1,6 @@
 /*
  * Copyright (c) 2018-2021 The Linux Foundation. All rights reserved.
  * Copyright (c) 2021-2024 Qualcomm Innovation Center, Inc. All rights reserved.
- * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -789,16 +788,6 @@ struct wlan_mlme_cfg_sap {
 	bool disable_bcn_prot;
 	bool sap_ps_with_twt_enable;
 	uint8_t mlo_sap_support_link_num;
-};
-
-/**
- * struct wlan_mlme_p2p_cfg - P2P related config items
- * @p2p_go_cancel_one_shot_noa: Go can cancel one-shot NoA schedule
- * @p2p_gc_keep_awake_during_noa: Gc keeps awake during NoA
- */
-struct wlan_mlme_p2p_cfg {
-	bool p2p_go_cancel_one_shot_noa;
-	bool p2p_gc_keep_awake_during_noa;
 };
 
 /**
@@ -2082,8 +2071,6 @@ struct fw_scan_channels {
  * @roam_preauth_no_ack_timeout: Configure the no ack timeout period
  * @roam_rssi_diff: Enable roam based on rssi
  * @roam_rssi_diff_6ghz: RSSI diff value to be used for roaming to 6 GHz AP.
- * @roam_rssi_delta_6ghz_to_non_6ghz: RSSI diff value to be used for
- * roaming from 6 GHz to Non 6GHz AP.
  * @bg_rssi_threshold: Background RSSI threshold
  * @roam_scan_offload_enabled: Enable Roam Scan Offload
  * @neighbor_scan_timer_period: Neighbor scan timer period
@@ -2149,7 +2136,6 @@ struct fw_scan_channels {
  * for Hotspot 2.0
  * @roam_aggre_scan_step_rssi: Roam scan step RSSI in aggressive mode
  * @roam_aggre_threshold: Roam threshold in aggressive mode
- * @mrsno_support: FW support for Multi RSNO feature
  */
 struct wlan_mlme_lfr_cfg {
 	bool mawc_roam_enabled;
@@ -2221,7 +2207,6 @@ struct wlan_mlme_lfr_cfg {
 	uint32_t roam_preauth_no_ack_timeout;
 	uint8_t roam_rssi_diff;
 	uint8_t roam_rssi_diff_6ghz;
-	uint8_t roam_rssi_delta_6ghz_to_non_6ghz;
 	uint8_t bg_rssi_threshold;
 	bool roam_scan_offload_enabled;
 	uint32_t neighbor_scan_timer_period;
@@ -2282,7 +2267,6 @@ struct wlan_mlme_lfr_cfg {
 	bool hs20_btm_offload_disable;
 	uint32_t roam_aggre_scan_step_rssi;
 	uint8_t roam_aggre_threshold;
-	bool mrsno_support;
 };
 
 /**
@@ -2889,7 +2873,6 @@ struct wlan_mlme_iot {
  * @dfs_cfg: DFS related CFG Items
  * @sap_protection_cfg: SAP erp protection related CFG items
  * @sap_cfg: sap CFG items
- * @p2p: p2p CFG items
  * @nss_chains_ini_cfg: Per vdev nss, chains related CFG items
  * @sta: sta CFG Items
  * @stats: stats CFG Items
@@ -2945,7 +2928,6 @@ struct wlan_mlme_cfg {
 	struct wlan_mlme_dfs_cfg dfs_cfg;
 	struct wlan_mlme_sap_protection sap_protection_cfg;
 	struct wlan_mlme_cfg_sap sap_cfg;
-	struct wlan_mlme_p2p_cfg p2p;
 	struct wlan_mlme_nss_chains nss_chains_ini_cfg;
 	struct wlan_mlme_sta_cfg sta;
 	struct wlan_mlme_stats_cfg stats;

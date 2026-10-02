@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023-2025 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2023-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -950,8 +950,6 @@ ml_nlink_update_disallow_modes(struct wlan_objmgr_psoc *psoc,
 					dual_freq_lst, dual_linkid_lst,
 					force_active_bitmap);
 
-			tmp_num_of_modes =
-				QDF_MIN(tmp_num_of_modes, MAX_DISALLOW_MODE);
 			/* Combine the 3 disallowed mode bitmaps into one for 3-link */
 			for (k = 0; k < tmp_num_of_modes; k++) {
 				if (num_of_modes < MAX_DISALLOW_MODE) {
@@ -2814,7 +2812,6 @@ ml_nlink_handle_comm_intf_non_dbs(struct wlan_objmgr_psoc *psoc,
 	struct ml_link_info ml_link_info[WLAN_MAX_ML_BSS_LINKS];
 	uint8_t i;
 	bool force_link_required = false;
-	uint32_t mcc_to_scc_switch;
 
 	ml_nlink_get_link_info(psoc, vdev, NLINK_EXCLUDE_REMOVED_LINK,
 			       QDF_ARRAY_SIZE(ml_linkid_lst),
@@ -2830,11 +2827,7 @@ ml_nlink_handle_comm_intf_non_dbs(struct wlan_objmgr_psoc *psoc,
 	case PM_STA_MODE:
 		goto force_inactive_num;
 	case PM_SAP_MODE:
-		mcc_to_scc_switch = policy_mgr_get_mcc_to_scc_switch_mode(psoc);
-
-		if (mcc_to_scc_switch !=
-			QDF_MCC_TO_SCC_WITH_SAME_LOWER_BAND_MCC_WITH_HIGHER_BAND)
-			force_link_required = true;
+		force_link_required = true;
 		break;
 	default:
 		/* unexpected legacy connection mode */
@@ -2878,7 +2871,7 @@ ml_nlink_handle_comm_intf_non_dbs(struct wlan_objmgr_psoc *psoc,
 		}
 	}
 
-	if (force_inactive_link_bitmap && force_link_required)
+	if (force_inactive_link_bitmap)
 		force_cmd->force_inactive_bitmap = force_inactive_link_bitmap;
 
 	return;
@@ -5435,13 +5428,7 @@ ml_nlink_emlsr_downgrade_handler(struct wlan_objmgr_psoc *psoc,
 	}
 
 	/* Check if any set link is already in progress and thus wait */
-	status = policy_mgr_wait_for_set_link_update(psoc);
-	if (QDF_IS_STATUS_ERROR(status) &&
-	    status != QDF_STATUS_CMD_NOT_QUEUED) {
-		mlo_debug("wait for set link completion status %d", status);
-		goto end;
-	}
-	status = QDF_STATUS_SUCCESS;
+	policy_mgr_wait_for_set_link_update(psoc);
 
 	old_emlsr_disable_req =
 	ml_nlink_set_emlsr_mode_disable_req(psoc, ml_vdev, disable_request);

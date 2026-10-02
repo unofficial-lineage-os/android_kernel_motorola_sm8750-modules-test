@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2012-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+ * Copyright (c) 2021-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -97,7 +97,6 @@ struct wma_caps_per_phy {
 
 struct wma_ps_params {
 	enum wmi_sta_ps_scheme_cfg opm_mode;
-	uint8_t ps_opm_level;
 	uint16_t ps_ito;
 	uint16_t spec_wake;
 };
@@ -107,13 +106,11 @@ struct wma_ps_params {
  * @WMA_STA_PS_OPM_CONSERVATIVE: Conservative OPM mode
  * @WMA_STA_PS_OPM_AGGRESSIVE: Aggressive OPM mode
  * @WMA_STA_PS_USER_DEF: User defined OPM mode
- * @WMA_STA_PS_LATENCY_DEF: Latency based opm mode
  */
 enum wma_sta_ps_scheme_cfg {
 	WMA_STA_PS_OPM_CONSERVATIVE = 0,
 	WMA_STA_PS_OPM_AGGRESSIVE = 1,
 	WMA_STA_PS_USER_DEF = 2,
-	WMA_STA_PS_LATENCY_DEF = 3,
 };
 
 #define VDEV_CMD 1
@@ -482,16 +479,6 @@ QDF_STATUS wma_set_power_config(uint8_t vdev_id,
  * Return: QDF_STATUS_SUCCESS on success, error number otherwise
  */
 QDF_STATUS wma_set_power_config_ito(uint8_t vdev_id, uint16_t ps_ito);
-
-/**
- * wma_set_power_config_opm_level() - update power save opm level
- * @vdev_id:	  the Id of the vdev to configure
- * @ps_opm_level: new power save inactivity timeout level
- *
- * Return: QDF_STATUS_SUCCESS on success, error number otherwise
- */
-QDF_STATUS
-wma_set_power_config_opm_level(uint8_t vdev_id, uint8_t ps_opm_level);
 
 /**
  * wma_set_power_config_spec_wake() - update opm speculative wake interval
@@ -995,34 +982,4 @@ static inline bool wma_is_epm_supported_fw(WMA_HANDLE handle)
 }
 #endif
 
-#ifdef FEATURE_WLAN_APF
-/**
- * wma_get_fw_active_apf_mode() - convert active_apf_mode to WMI
- * configurable APF mode
- * @mode: APF mode
- *
- * Return: FW configurable APF mode
- */
-enum wmi_host_active_apf_mode
-wma_get_fw_active_apf_mode(enum active_apf_mode mode);
-#else
-static inline enum wmi_host_active_apf_mode
-wma_get_fw_active_apf_mode(enum active_apf_mode mode)
-{
-	return WMI_HOST_ACTIVE_APF_DISABLED;
-}
-#endif /* FEATURE_WLAN_APF */
-
-/**
- * wma_is_both_psd_eirp_support_present_for_sp() - FW can handle
- * PSD and EIRP together or not
- *
- * @param: reg tpc power
- * @value: true if FW can handle PSD and EIRP together or not
- *
- * Return: None
- */
-void
-wma_is_both_psd_eirp_support_present_for_sp(struct reg_tpc_power_info *param,
-					    bool *value);
 #endif /* WMA_API_H */

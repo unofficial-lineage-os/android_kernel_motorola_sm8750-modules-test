@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2012-2018, 2020 The Linux Foundation. All rights reserved.
- * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+ * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -35,7 +35,6 @@
 #include "wlan_lmac_if_def.h"
 #include <wlan_dcs_ucfg_api.h>
 #include "wlan_hdd_dcs.h"
-#include "wlan_ll_sap_api.h"
 
 /**
  * hdd_green_ap_check_enable() - to check whether to enable green ap or not
@@ -248,7 +247,6 @@ __wlan_hdd_enter_sap_low_pwr_mode(struct wiphy *wiphy,
 	struct nlattr *tb[QCA_WLAN_VENDOR_ATTR_DOZED_AP_MAX + 1];
 	struct sk_buff *skb;
 	uint8_t vdev_id;
-	uint8_t mac_id;
 
 	hdd_enter_dev(wdev->netdev);
 
@@ -287,20 +285,10 @@ __wlan_hdd_enter_sap_low_pwr_mode(struct wiphy *wiphy,
 	hdd_debug("Cookie id received : %llu", cookie_id);
 
 	vdev_id = wlan_vdev_get_id(adapter->deflink->vdev);
-	status = policy_mgr_get_mac_id_by_session_id(hdd_ctx->psoc, vdev_id,
-						     &mac_id);
-	if (QDF_IS_STATUS_ERROR(status)) {
-		hdd_err("unable to get mac id");
-		return -EINVAL;
-	}
-
 	wlan_hdd_enable_disable_dcs_cmd(
 				hdd_ctx->psoc,
-				mac_id,
+				wlan_objmgr_pdev_get_pdev_id(hdd_ctx->pdev),
 				vdev_id, lp_flags);
-
-	if (lp_flags == QCA_WLAN_DOZED_AP_ENABLE)
-		wlan_ll_sap_set_cur_freq_unused_cu(hdd_ctx->psoc, vdev_id, 0);
 
 	len = NLMSG_HDRLEN;
 	/*QCA_WLAN_VENDOR_ATTR_DOZED_AP_COOKIE*/
@@ -358,11 +346,6 @@ QDF_STATUS wlan_hdd_send_green_ap_ll_ps_event(
 	uint32_t len;
 	struct vdev_osif_priv *osif_priv;
 	struct sk_buff *skb;
-
-	if (!vdev) {
-		hdd_err("VDEV is NULL");
-		return QDF_STATUS_E_FAILURE;
-	}
 
 	osif_priv = wlan_vdev_get_ospriv(vdev);
 	if (!osif_priv) {

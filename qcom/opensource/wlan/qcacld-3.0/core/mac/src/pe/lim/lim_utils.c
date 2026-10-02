@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2011-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2025 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -3913,8 +3913,7 @@ void lim_update_sta_run_time_ht_switch_chnl_params(struct mac_context *mac,
 
 		/* Before restarting vdev, delete the tdls peers */
 		lim_update_tdls_set_state_for_fw(pe_session, false);
-		lim_delete_tdls_peers(mac, pe_session,
-				      TDLS_PEER_DEL_REASON_NONE);
+		lim_delete_tdls_peers(mac, pe_session);
 
 		lim_ht_switch_chnl_req(pe_session);
 	}
@@ -4539,8 +4538,10 @@ void lim_process_add_sta_rsp(struct mac_context *mac_ctx,
 	session->csaOffloadEnable = add_sta_params->csaOffloadEnable;
 	if (LIM_IS_NDI_ROLE(session))
 		lim_ndp_add_sta_rsp(mac_ctx, session, msg->bodyptr);
+#ifdef FEATURE_WLAN_TDLS
 	else if (add_sta_params->staType == STA_ENTRY_TDLS_PEER)
 		lim_process_tdls_add_sta_rsp(mac_ctx, msg->bodyptr, session);
+#endif
 	else
 		lim_process_mlm_add_sta_rsp(mac_ctx, msg, session);
 
@@ -5106,35 +5107,49 @@ void lim_get_short_slot_from_phy_mode(struct mac_context *mac, struct pe_session
 	*pShortSlotEnabled = val;
 }
 
+/**
+ *
+ * \brief This function is called by various LIM modules to correctly set
+ * the Protected bit in the Frame Control Field of the 802.11 frame MAC header
+ *
+ *
+ * \param  mac Pointer to Global MAC structure
+ *
+ * \param pe_session Pointer to session corresponding to the connection
+ *
+ * \param peer Peer address of the STA to which the frame is to be sent
+ *
+ * \param pMacHdr Pointer to the frame MAC header
+ *
+ * \return nothing
+ *
+ *
+ */
 void
 lim_set_protected_bit(struct mac_context *mac,
 		      struct pe_session *pe_session,
-		      tSirMacAddr peer_mac, tpSirMacMgmtHdr pMacHdr)
+		      tSirMacAddr peer, tpSirMacMgmtHdr pMacHdr)
 {
 	uint16_t aid;
 	tpDphHashNode sta;
 
-	sta = dph_lookup_hash_entry(mac, peer_mac, &aid,
+	sta = dph_lookup_hash_entry(mac, peer, &aid,
 				    &pe_session->dph.dphHashTable);
-	if (!sta) {
-		pe_debug(QDF_MAC_ADDR_FMT " not found sta ds",
-			 QDF_MAC_ADDR_REF(peer_mac));
-		return;
+	if (sta) {
+		/* rmfenabled will be set at the time of addbss.
+		 * but sometimes EAP auth fails and keys are not
+		 * installed then if we send any management frame
+		 * like deauth/disassoc with this bit set then
+		 * firmware crashes. so check for keys are
+		 * installed or not also before setting the bit
+		 */
+		if (sta->rmfEnabled && sta->is_key_installed)
+			pMacHdr->fc.wep = 1;
+
+		pe_debug("wep:%d rmf:%d is_key_set:%d", pMacHdr->fc.wep,
+			 sta->rmfEnabled, sta->is_key_installed);
 	}
-
-	/* rmfenabled will be set at the time of addbss.
-	 * but sometimes EAP auth fails and keys are not
-	 * installed then if we send any management frame
-	 * like deauth/disassoc with this bit set then
-	 * firmware crashes. so check for keys are
-	 * installed or not also before setting the bit
-	 */
-	if (!sta->rmfEnabled)
-		return;
-
-	if (wlan_peer_is_key_installed(mac->psoc, peer_mac))
-		pMacHdr->fc.wep = 1;
-}
+} /*** end lim_set_protected_bit() ***/
 
 void lim_set_ht_caps(struct mac_context *p_mac, uint8_t *p_ie_start,
 		     uint32_t num_bytes)
@@ -6069,13 +6084,6 @@ static void lim_update_ap_he_op(struct pe_session *session,
 						ch_params->center_freq_seg1;
 		session->he_op.oper_info_6g.info.ch_width =
 						ch_params->ch_width;
-	} else {
-		session->he_punc_chan_info.present = 1;
-		session->he_punc_chan_info.chan_width = ch_params->ch_width;
-		session->he_punc_chan_info.center_freq_seg0 =
-						ch_params->center_freq_seg0;
-		session->he_punc_chan_info.center_freq_seg1 =
-						ch_params->center_freq_seg1;
 	}
 }
 
@@ -7169,11 +7177,16 @@ void lim_update_stads_he_caps(struct mac_context *mac_ctx,
 	if (!IS_DOT11_MODE_HE(session_entry->dot11mode))
 		goto out;
 
-	/* assoc resp and beacon doesn't have he caps */
-	if (!assoc_rsp->he_cap.present) {
-		pe_err("HE cap IE is missing in assoc response");
-		goto out;
+	if (!assoc_rsp->he_cap.present && beacon && beacon->he_cap.present) {
+		/* Use beacon HE caps if assoc resp doesn't have he caps */
+		pe_debug("he_caps missing in assoc rsp");
+		qdf_mem_copy(&assoc_rsp->he_cap, &beacon->he_cap,
+			     sizeof(tDot11fIEhe_cap));
 	}
+
+	/* assoc resp and beacon doesn't have he caps */
+	if (!assoc_rsp->he_cap.present)
+		goto out;
 
 	sta_ds->mlmStaContext.he_capable = assoc_rsp->he_cap.present;
 
@@ -7402,14 +7415,6 @@ void lim_update_he_caps_mcs(struct mac_context *mac, struct pe_session *session)
 }
 
 static void
-lim_print_he_config(tDot11fIEhe_cap he_config)
-{
-	pe_debug("he_config: 0x");
-	qdf_trace_hex_dump(QDF_MODULE_ID_PE, QDF_TRACE_LEVEL_DEBUG,
-			   (void *)&he_config, sizeof(he_config));
-}
-
-static void
 lim_revise_req_he_cap_per_band(struct mlme_legacy_priv *mlme_priv,
 			       struct pe_session *session)
 {
@@ -7473,8 +7478,8 @@ lim_revise_req_he_cap_per_band(struct mlme_legacy_priv *mlme_priv,
 		he_config->codebook_su = mac->he_cap_5g.codebook_su;
 		he_config->codebook_mu = mac->he_cap_5g.codebook_mu;
 	}
-	lim_print_he_config(mlme_priv->he_config);
 
+	pe_debug("he_config: 0x%x", mlme_priv->he_config);
 }
 
 static void
@@ -7748,11 +7753,6 @@ void lim_update_session_he_capable(struct mac_context *mac, struct pe_session *s
 		session->he_config.rx_pream_puncturing =
 					mac->he_cap_5g.rx_pream_puncturing;
 	}
-}
-
-void lim_reset_session_he_capable(struct pe_session *session)
-{
-	session->he_capable = false;
 }
 
 void lim_update_session_he_capable_chan_switch(struct mac_context *mac,
@@ -8610,8 +8610,6 @@ static void lim_intersect_eht_caps(tDot11fIEeht_cap *rcvd_eht,
 		peer_eht->support_320mhz_6ghz = 1;
 	else
 		peer_eht->support_320mhz_6ghz = 0;
-
-	peer_eht->mcs_15 = session_eht->mcs_15 & rcvd_eht->mcs_15;
 }
 
 void lim_update_usr_eht_cap(struct mac_context *mac_ctx,
@@ -8851,9 +8849,10 @@ void lim_intersect_sta_eht_caps(struct mac_context *mac_ctx,
 	lim_intersect_eht_caps(rcvd_eht, peer_eht, session);
 }
 
-void lim_update_session_eht_capable(struct pe_session *session, bool val)
+void lim_update_session_eht_capable(struct mac_context *mac,
+				    struct pe_session *session)
 {
-	session->eht_capable = val;
+	session->eht_capable = true;
 }
 
 void lim_add_bss_eht_cfg(struct bss_params *add_bss, struct pe_session *session)
@@ -9333,17 +9332,23 @@ QDF_STATUS lim_send_eht_caps_ie(struct mac_context *mac_ctx,
 
 void lim_update_stads_eht_caps(struct mac_context *mac_ctx,
 			       tpDphHashNode sta_ds, tpSirAssocRsp assoc_rsp,
-			       struct pe_session *session_entry)
+			       struct pe_session *session_entry,
+			       tSchBeaconStruct *beacon)
 {
 	/* If EHT is not supported, do not fill sta_ds and return */
 	if (!IS_DOT11_MODE_EHT(session_entry->dot11mode))
 		return;
 
-	/* assoc resp and beacon doesn't have eht caps */
-	if (!assoc_rsp->eht_cap.present) {
-		pe_err("EHT cap IE is missing in assoc response");
-		return;
+	if (!assoc_rsp->eht_cap.present && beacon && beacon->eht_cap.present) {
+		/* Use beacon EHT caps if assoc resp doesn't have he caps */
+		pe_debug("eht_caps missing in assoc rsp");
+		qdf_mem_copy(&assoc_rsp->eht_cap, &beacon->eht_cap,
+			     sizeof(tDot11fIEeht_cap));
 	}
+
+	/* assoc resp and beacon doesn't have eht caps */
+	if (!assoc_rsp->eht_cap.present)
+		return;
 
 	sta_ds->mlmStaContext.eht_capable = assoc_rsp->eht_cap.present;
 
@@ -11116,11 +11121,6 @@ QDF_STATUS lim_set_session_channel_params(struct mac_context *mac,
 	band = wlan_reg_freq_to_band(session->curr_op_freq);
 	band_mask = 1 << band;
 
-	if (session->ch_width == CH_WIDTH_80P80MHZ) {
-		session->ch_width = CH_WIDTH_80MHZ;
-		session->ch_center_freq_seg1 = 0;
-	}
-
 	ch_params.ch_width = session->ch_width;
 	ch_params.mhz_freq_seg0 =
 		wlan_reg_chan_band_to_freq(mac->pdev,
@@ -11132,15 +11132,6 @@ QDF_STATUS lim_set_session_channel_params(struct mac_context *mac,
 			wlan_reg_chan_band_to_freq(mac->pdev,
 						   session->ch_center_freq_seg1,
 						   band_mask);
-	/* ch_params.mhz_freq_seg1 would be 0 only if the
-	 * session->ch_center_freq_seg1 is invalid/disabled. Downgrade the bw
-	 * to 160 MHz as 320 MHz can't be a valid bw for such channel.
-	 */
-	if (!ch_params.mhz_freq_seg1 &&
-	    ch_params.ch_width == CH_WIDTH_320MHZ) {
-		pe_debug("Downgrade ch_width to 160MHz");
-		ch_params.ch_width = CH_WIDTH_160MHZ;
-	}
 
 	if (band == (REG_BAND_2G) && (ch_params.ch_width == CH_WIDTH_40MHZ)) {
 		if (ch_params.mhz_freq_seg0 ==  session->curr_op_freq + 10)
@@ -11444,7 +11435,6 @@ lim_get_omn_channel_width(tDot11fIEOperatingMode *omn_ie)
 enum phy_ch_width lim_get_vht_ch_width(tDot11fIEVHTCaps *vht_cap,
 				       tDot11fIEVHTOperation *vht_op,
 				       tDot11fIEHTInfo *ht_info,
-				       tDot11fIEHTCaps *ht_cap,
 				       tDot11fIEOperatingMode *omn_ie)
 {
 	uint8_t ccfs0, ccfs1, offset;
@@ -11461,8 +11451,7 @@ enum phy_ch_width lim_get_vht_ch_width(tDot11fIEVHTCaps *vht_cap,
 	switch (vht_op->chanWidth) {
 	case WNI_CFG_VHT_CHANNEL_WIDTH_20_40MHZ:
 		if (ht_info && ht_info->present &&
-		    ht_info->recommendedTxWidthSet && ht_cap && ht_cap->present
-		    && ht_cap->supportedChannelWidthSet)
+		    ht_info->recommendedTxWidthSet)
 			vht_ch_width = CH_WIDTH_40MHZ;
 		else
 			vht_ch_width = CH_WIDTH_20MHZ;
@@ -12374,14 +12363,12 @@ uint16_t lim_get_tpe_ie_length(enum phy_ch_width chan_width,
 		switch (tpe_ie[idx].max_tx_pwr_interpret) {
 		case LOCAL_EIRP:
 		case REGULATORY_CLIENT_EIRP:
-		case ADDITIONAL_REGULATORY_CLIENT_EIRP:
 			/* Maximum Transmit Power For 320 MHz */
 			if (tpe_ie[idx].ext_max_tx_power.ext_max_tx_power_local_eirp.max_tx_power_for_320)
 				total_ie_len += 1;
 			break;
 		case LOCAL_EIRP_PSD:
 		case REGULATORY_CLIENT_EIRP_PSD:
-		case ADDITIONAL_REGULATORY_CLIENT_EIRP_PSD:
 			if (!tpe_ie[idx].ext_max_tx_power.ext_max_tx_power_reg_psd.ext_count)
 				break;
 

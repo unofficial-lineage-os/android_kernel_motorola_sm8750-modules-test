@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2011-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+ * Copyright (c) 2021-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -3640,7 +3640,6 @@ static void lim_update_vht_oper_assoc_resp(struct mac_context *mac_ctx,
 		ch_width =
 			lim_get_vht_ch_width(vht_caps, vht_oper,
 					     &assoc_rsp->HTInfo,
-					     &assoc_rsp->HTCaps,
 					     &assoc_rsp->oper_mode_ntf);
 
 	if (ch_width > pe_session->ch_width)
@@ -3763,36 +3762,13 @@ lim_limit_bw_for_iot_ap(struct mac_context *mac_ctx,
 	}
 }
 
-static void
-lim_sta_update_max_channel_width(struct pe_session *pe_session,
-				 tpSirAssocRsp pAssocRsp,
-				 struct bss_params *pAddBssParams)
-{
-	enum phy_ch_width max_ch_width;
-
-	if (lim_is_eht_connection_op_info_present(pe_session, pAssocRsp)) {
-		max_ch_width = CH_WIDTH_320MHZ;
-	} else if ((pe_session->vhtCapability && pAssocRsp->VHTCaps.present) ||
-		 (lim_is_session_he_capable(pe_session) &&
-		  pAssocRsp->he_cap.present)) {
-		max_ch_width = CH_WIDTH_160MHZ;
-	} else {
-		max_ch_width = CH_WIDTH_40MHZ;
-	}
-
-	if (pAddBssParams->ch_width > max_ch_width) {
-		pAddBssParams->ch_width = max_ch_width;
-		pAddBssParams->staContext.ch_width = max_ch_width;
-	}
-}
-
 QDF_STATUS lim_sta_send_add_bss(struct mac_context *mac, tpSirAssocRsp pAssocRsp,
 				   tpSchBeaconStruct pBeaconStruct,
 				   struct bss_description *bssDescription,
 				   uint8_t updateEntry, struct pe_session *pe_session)
 {
 	struct bss_params *pAddBssParams = NULL;
-	QDF_STATUS retCode;
+	uint32_t retCode;
 	tpDphHashNode sta = NULL;
 	bool chan_width_support = false;
 	bool is_vht_cap_in_vendor_ie = false;
@@ -3832,8 +3808,7 @@ QDF_STATUS lim_sta_send_add_bss(struct mac_context *mac, tpSirAssocRsp pAssocRsp
 		(uint8_t) pe_session->beaconParams.llbCoexist;
 
 	/* Use the advertised capabilities from the received beacon/PR */
-	if (IS_DOT11_MODE_HT(pe_session->dot11mode) &&
-	    pAssocRsp->HTCaps.present) {
+	if (IS_DOT11_MODE_HT(pe_session->dot11mode)) {
 		chan_width_support =
 			lim_get_ht_capability(mac,
 					      eHT_SUPPORTED_CHANNEL_WIDTH_SET,
@@ -3850,28 +3825,23 @@ QDF_STATUS lim_sta_send_add_bss(struct mac_context *mac, tpSirAssocRsp pAssocRsp
 		 * width has been taken into account for calculating
 		 * pe_session->ch_width
 		 */
-		if (lim_is_eht_connection_op_info_present(pe_session,
-							  pAssocRsp) ||
-		    (chan_width_support &&
-		    pAssocRsp->VHTCaps.present)) {
+		if ((chan_width_support &&
+		     ((pAssocRsp->HTCaps.present &&
+		       pAssocRsp->HTCaps.supportedChannelWidthSet) ||
+		      (pBeaconStruct->HTCaps.present &&
+		       pBeaconStruct->HTCaps.supportedChannelWidthSet))) ||
+		    lim_is_eht_connection_op_info_present(pe_session,
+							  pAssocRsp)) {
 			pAddBssParams->ch_width =
 					pe_session->ch_width;
 			pAddBssParams->staContext.ch_width =
-					pe_session->ch_width;
-		} else if ((chan_width_support &&
-		     ((pAssocRsp->HTCaps.supportedChannelWidthSet) ||
-		      (pBeaconStruct->HTCaps.present &&
-		       pBeaconStruct->HTCaps.supportedChannelWidthSet)))) {
-			pAddBssParams->ch_width = CH_WIDTH_40MHZ;
-			pAddBssParams->staContext.ch_width = CH_WIDTH_40MHZ;
+						pe_session->ch_width;
 		} else {
 			pAddBssParams->ch_width = CH_WIDTH_20MHZ;
 			pAddBssParams->staContext.ch_width = CH_WIDTH_20MHZ;
 			if (!vht_cap_info->enable_txbf_20mhz)
 				pAddBssParams->staContext.vhtTxBFCapable = 0;
 		}
-	} else {
-		pe_session->htCapability = false;
 	}
 
 	if (pe_session->vhtCapability && (pAssocRsp->VHTCaps.present)) {
@@ -3887,9 +3857,7 @@ QDF_STATUS lim_sta_send_add_bss(struct mac_context *mac, tpSirAssocRsp pAssocRsp
 		vht_oper = &pAssocRsp->vendor_vht_ie.VHTOperation;
 	} else {
 		pAddBssParams->vhtCapable = 0;
-		pe_session->vhtCapability = false;
 	}
-
 	if (pAddBssParams->vhtCapable) {
 		if (vht_oper)
 			lim_update_vht_oper_assoc_resp(mac, pAddBssParams,
@@ -3902,24 +3870,17 @@ QDF_STATUS lim_sta_send_add_bss(struct mac_context *mac, tpSirAssocRsp pAssocRsp
 
 	if (lim_is_session_he_capable(pe_session) &&
 			(pAssocRsp->he_cap.present)) {
-		/* Use STA SMPS capability as AP's SMPS value is not valid,
-		 * and use p2p GO's assoc response value to avoid IOT issue.
-		 */
-		if (pe_session->opmode != QDF_P2P_CLIENT_MODE)
-			pAssocRsp->he_cap.he_dynamic_smps =
+		/* Use STA SMPS capability as AP's SMPS value is not valid */
+		pAssocRsp->he_cap.he_dynamic_smps =
 				lim_is_he_dynamic_smps_enabled(pe_session);
 		lim_add_bss_he_cap(pAddBssParams, pAssocRsp);
 		lim_add_bss_he_cfg(pAddBssParams, pe_session);
-	} else {
-		lim_reset_session_he_capable(pe_session);
 	}
 
 	if (lim_is_session_eht_capable(pe_session) &&
 	    (pAssocRsp->eht_cap.present)) {
 		lim_add_bss_eht_cap(pAddBssParams, pAssocRsp);
 		lim_add_bss_eht_cfg(pAddBssParams, pe_session);
-	} else {
-		lim_update_session_eht_capable(pe_session, false);
 	}
 
 	if (lim_is_session_eht_capable(pe_session) &&
@@ -4030,7 +3991,8 @@ QDF_STATUS lim_sta_send_add_bss(struct mac_context *mac, tpSirAssocRsp pAssocRsp
 			}
 		}
 		if (lim_is_session_he_capable(pe_session) &&
-		    pAssocRsp->he_cap.present) {
+		    (pAssocRsp->he_cap.present ||
+		     pBeaconStruct->he_cap.present)) {
 			lim_intersect_ap_he_caps(pe_session,
 						 pAddBssParams,
 						 pBeaconStruct,
@@ -4041,18 +4003,17 @@ QDF_STATUS lim_sta_send_add_bss(struct mac_context *mac, tpSirAssocRsp pAssocRsp
 		}
 
 		if (lim_is_session_eht_capable(pe_session) &&
-		    pAssocRsp->eht_cap.present) {
+		    (pAssocRsp->eht_cap.present ||
+		     pBeaconStruct->eht_cap.present)) {
 			lim_intersect_ap_eht_caps(pe_session,
 						  pAddBssParams,
 						  pBeaconStruct,
 						  pAssocRsp);
 		}
-		/* Use STA SMPS capability as AP's SMPS value is not valid,
-		 * and use p2p GO's assoc response value to avoid IOT issue.
-		 */
-		if (pe_session->opmode != QDF_P2P_CLIENT_MODE)
-			pAssocRsp->HTCaps.mimoPowerSave =
-				pe_session->ht_config.mimo_power_save;
+
+		/* Use STA SMPS capability as AP's SMPS value is not valid */
+		pAssocRsp->HTCaps.mimoPowerSave =
+			pe_session->ht_config.mimo_power_save;
 		pAddBssParams->staContext.mimoPS =
 			(tSirMacHTMIMOPowerSaveState)
 			pAssocRsp->HTCaps.mimoPowerSave;
@@ -4123,7 +4084,8 @@ QDF_STATUS lim_sta_send_add_bss(struct mac_context *mac, tpSirAssocRsp pAssocRsp
 	}
 	if (lim_is_he_6ghz_band(pe_session)) {
 		if (lim_is_session_he_capable(pe_session) &&
-		    pAssocRsp->he_cap.present) {
+		    (pAssocRsp->he_cap.present ||
+		     pBeaconStruct->he_cap.present)) {
 			lim_intersect_ap_he_caps(pe_session,
 						 pAddBssParams,
 						 pBeaconStruct,
@@ -4136,18 +4098,16 @@ QDF_STATUS lim_sta_send_add_bss(struct mac_context *mac, tpSirAssocRsp pAssocRsp
 				lim_update_he_6gop_assoc_resp(pAddBssParams,
 							      &pAssocRsp->he_op,
 							      pe_session);
-			/* Use STA SMPS cap as AP's SMPS value is not valid,
-			 * and use p2p GO's assoc response value to avoid IOT issue.
-			 */
-			if (pe_session->opmode != QDF_P2P_CLIENT_MODE)
-				pAssocRsp->he_6ghz_band_cap.sm_pow_save =
+			/* Use STA SMPS cap as AP's SMPS value is not valid */
+			pAssocRsp->he_6ghz_band_cap.sm_pow_save =
 					pe_session->ht_config.mimo_power_save;
 			lim_update_he_6ghz_band_caps(mac,
 						&pAssocRsp->he_6ghz_band_cap,
 						&pAddBssParams->staContext);
 		}
 		if (lim_is_session_eht_capable(pe_session) &&
-		    pAssocRsp->eht_cap.present) {
+		    (pAssocRsp->eht_cap.present ||
+		     pBeaconStruct->eht_cap.present)) {
 			lim_intersect_ap_eht_caps(pe_session,
 						  pAddBssParams,
 						  pBeaconStruct,
@@ -4236,10 +4196,6 @@ QDF_STATUS lim_sta_send_add_bss(struct mac_context *mac, tpSirAssocRsp pAssocRsp
 		pAddBssParams->ch_width = CH_WIDTH_10MHZ;
 		pAddBssParams->staContext.ch_width = CH_WIDTH_10MHZ;
 	}
-
-	/* check and update max channel width supported */
-	lim_sta_update_max_channel_width(pe_session, pAssocRsp, pAddBssParams);
-
 	lim_set_sta_ctx_twt(&pAddBssParams->staContext, pe_session);
 
 	if (lim_is_fils_connection(pe_session))
@@ -4263,10 +4219,10 @@ QDF_STATUS lim_sta_send_add_bss(struct mac_context *mac, tpSirAssocRsp pAssocRsp
 		SET_LIM_PROCESS_DEFD_MESGS(mac, true);
 		pe_err("wma_send_peer_assoc_req failed=%X",
 		       retCode);
-	} else {
-		lim_limit_bw_for_iot_ap(mac, pe_session, bssDescription);
 	}
 	qdf_mem_free(pAddBssParams);
+
+	lim_limit_bw_for_iot_ap(mac, pe_session, bssDescription);
 
 returnFailure:
 	/* Clean-up will be done by the caller... */

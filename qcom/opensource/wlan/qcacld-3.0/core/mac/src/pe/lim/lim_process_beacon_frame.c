@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2011-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+ * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -257,7 +257,7 @@ lim_validate_rsn_ie(const uint8_t *ie_ptr, uint16_t ie_len)
 	const uint8_t *rsn_ie;
 	struct wlan_crypto_params crypto_params;
 
-	rsn_ie = wlan_get_rsn_data_from_ie_ptr(ie_ptr, ie_len);
+	rsn_ie = wlan_get_ie_ptr_from_eid(WLAN_ELEMID_RSN, ie_ptr, ie_len);
 	if (!rsn_ie)
 		return QDF_STATUS_SUCCESS;
 
@@ -440,15 +440,12 @@ update_bw:
 		return;
 
 	if (update_allow) {
-		status = wlan_cm_sta_update_bw_puncture(vdev, session->bssId,
-							ori_punc, ori_bw,
-							ccfs0,
-							ccfs1,
-							new_bw);
-		if (QDF_IS_STATUS_SUCCESS(status))
-			wma_send_peer_phy_mode(session->bssId,
-					       session->vdev_id,
-					       phy_mode);
+		wlan_cm_sta_update_bw_puncture(vdev, session->bssId,
+					       ori_punc, ori_bw,
+					       ccfs0,
+					       ccfs1,
+					       new_bw);
+		wma_send_peer_phy_mode(session->bssId, session->vdev_id, phy_mode);
 	} else {
 		csa_param = qdf_mem_malloc(sizeof(*csa_param));
 		if (!csa_param) {
@@ -487,6 +484,9 @@ void lim_process_beacon_eht(struct mac_context *mac_ctx,
 	des_chan = wlan_vdev_mlme_get_des_chan(vdev);
 	if (!des_chan || !IS_WLAN_PHYMODE_EHT(des_chan->ch_phymode))
 		return;
+
+	if (wlan_cm_is_vdev_connected(vdev))
+		lim_process_beacon_eht_op(session, bcn_ptr);
 
 	if (mlo_is_mld_sta(vdev))
 		/* handle beacon IE for 802.11be mlo case */
@@ -588,12 +588,8 @@ lim_process_beacon_frame(struct mac_context *mac_ctx, uint8_t *rx_pkt_info,
 	if (mlo_is_mld_sta(session->vdev)) {
 		cu_flag = false;
 		status = lim_get_bpcc_from_mlo_ie(bcn_ptr, &bpcc);
-		if (QDF_IS_STATUS_SUCCESS(status)) {
-			uint8_t link_id = wlan_vdev_get_link_id(session->vdev);
-
-			cu_flag = lim_check_cu_happens(session->vdev, link_id,
-						       bpcc);
-		}
+		if (QDF_IS_STATUS_SUCCESS(status))
+			cu_flag = lim_check_cu_happens(session->vdev, bpcc);
 		lim_process_ml_reconfig(mac_ctx, session, rx_pkt_info);
 	}
 
@@ -658,9 +654,6 @@ lim_process_beacon_frame(struct mac_context *mac_ctx, uint8_t *rx_pkt_info,
 				mac_hdr, session);
 	}
 
-	if (wlan_cm_is_vdev_connected(session->vdev))
-		lim_process_beacon_eht_op(session, bcn_ptr);
-
 	if (cu_flag) {
 		lim_process_beacon_eht(mac_ctx, session, bcn_ptr);
 		if (session->lim_join_req)
@@ -674,10 +667,7 @@ lim_process_beacon_frame(struct mac_context *mac_ctx, uint8_t *rx_pkt_info,
 
 		lim_process_tpe_ie_from_beacon(mac_ctx, session,
 					       bss, &tpe_change);
-		if (!tpe_change) {
-			pe_nofl_rl_debug("no change in TPE IE");
-			goto end;
-		}
+
 		mlme_obj =
 			wlan_vdev_mlme_get_cmpt_obj(session->vdev);
 		if (!mlme_obj) {

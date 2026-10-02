@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2012-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2025 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -832,11 +832,6 @@ sch_set_fixed_beacon_fields(struct mac_context *mac_ctx, struct pe_session *sess
 		    session->dfsIncludeChanSwIe) {
 			populate_channel_switch_ann(mac_ctx, bcn_2, session);
 		}
-	} else if ((LIM_IS_AP_ROLE(session) || LIM_IS_P2P_DEVICE_GO(session)) &&
-		   session->dfsIncludeChanWrapperIe) {
-		populate_dot11f_chan_switch_wrapper(mac_ctx,
-						    &bcn_2->ChannelSwitchWrapper,
-						    session);
 	}
 
 	if (bcn_2->ext_chan_switch_ann.present || bcn_2->ChanSwitchAnn.present)
@@ -1050,15 +1045,6 @@ sch_set_fixed_beacon_fields(struct mac_context *mac_ctx, struct pe_session *sess
 						true);
 			populate_dot11f_bcn_prot_extcaps(mac_ctx, session,
 							 &bcn_2->ExtCap);
-
-			/*
-			 * TWT extended capabilities should be populated after
-			 * the intersection of beacon caps and self caps is done
-			 * because the bits for TWT are unique to STA and AP and
-			 * cannot be intersected.
-			 */
-			populate_dot11f_twt_extended_caps(mac_ctx, session,
-							  &bcn_2->ExtCap);
 		}
 	}
 

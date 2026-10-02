@@ -26,7 +26,6 @@
 
 #include "wlan_p2p_cfg_api.h"
 #include <qdf_types.h>
-#include "wlan_p2p_tgt_api.h"
 
 struct wlan_objmgr_psoc;
 struct p2p_roc_req;
@@ -523,6 +522,29 @@ ucfg_is_p2p_device_dynamic_set_mac_addr_supported(struct wlan_objmgr_psoc *psoc)
 }
 #endif
 
+/**
+ * ucfg_p2p_set_mgmt_frm_registration_update() - Set mgmt frame registration
+ * update
+ * @psoc: pointer to psoc object
+ * @mgmt_frm_registration_update: mgmt frame registration update value
+ *
+ * Return: None
+ */
+void
+ucfg_p2p_set_mgmt_frm_registration_update(
+					struct wlan_objmgr_psoc *psoc,
+					uint32_t mgmt_frm_registration_update);
+
+/**
+ * ucfg_p2p_get_mgmt_frm_registration_update() - Get mgmt registration
+ * update
+ * @psoc: pointer to psoc object
+ *
+ * Return: uint32_t
+ */
+uint32_t
+ucfg_p2p_get_mgmt_frm_registration_update(struct wlan_objmgr_psoc *psoc);
+
 #ifdef FEATURE_WLAN_SUPPORT_USD
 /**
  * ucfg_p2p_send_usd_params() - Sent USD parameters to target
@@ -588,7 +610,6 @@ ucfg_p2p_extract_ap_assist_dfs_params(struct wlan_objmgr_vdev *vdev,
  * @vdev: VDEV object manager
  * @is_dfs_owner: Pointer to get the DFS owner cap
  * @is_valid_ap_assist: Is valid AP assist params
- * @is_usr_restrict_csa: Is CSA restricted by user
  * @ap_bssid: BSSID of the assisted AP
  * @opclass: Operating class of the assisted AP
  * @chan: Channel number of assisted AP
@@ -598,7 +619,6 @@ ucfg_p2p_extract_ap_assist_dfs_params(struct wlan_objmgr_vdev *vdev,
 QDF_STATUS ucfg_p2p_get_ap_assist_dfs_params(struct wlan_objmgr_vdev *vdev,
 					     bool *is_dfs_owner,
 					     bool *is_valid_ap_assist,
-					     bool *is_usr_restrict_csa,
 					     struct qdf_mac_addr *ap_bssid,
 					     uint8_t *opclass, uint8_t *chan);
 
@@ -678,24 +698,4 @@ void ucfg_p2p_psoc_priv_set_sta_vdev_id(struct wlan_objmgr_psoc *psoc,
  * Return: vdev_id
  */
 uint8_t ucfg_p2p_psoc_priv_get_sta_vdev_id(struct wlan_objmgr_psoc *psoc);
-
-/**
- * ucfg_p2p_force_restrict_dfs_go_csa() - User restricted CSA for assisted P2P
- * group operation
- * @vdev: VDEV object manager
- * @val: Value from user.
- *
- * Test configuration to restrict CSA from happening via assisted P2P group
- *
- * Return: QDF_STATUS
- */
-QDF_STATUS
-ucfg_p2p_force_restrict_dfs_go_csa(struct wlan_objmgr_vdev *vdev, bool val);
-
-static inline
-bool ucfg_p2p_is_fw_cancel_one_shot_noa_supported(struct wlan_objmgr_psoc *psoc)
-{
-	return tgt_p2p_is_fw_cancel_one_shot_noa_supported(psoc);
-}
-
 #endif /* _WLAN_P2P_UCFG_API_H_ */

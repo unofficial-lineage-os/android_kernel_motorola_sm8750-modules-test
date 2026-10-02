@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2020-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+ * Copyright (c) 2021-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -1155,13 +1155,6 @@ static void dp_fisa_rx_fst_update(struct dp_rx_fst *fisa_hdl,
 		sw_ft_entry = &(((struct dp_fisa_rx_sw_ft *)
 					fisa_hdl->base)[hashed_flow_idx]);
 		if (!sw_ft_entry->is_populated) {
-			/* Add locking to prevent race condition between FISA
-			 * aggregation and update, which can Lead to NULL
-			 * dp_ctx dereference in dp_add_nbuf_to_fisa_flow.
-			 */
-			qdf_spin_unlock_bh(&fisa_hdl->dp_rx_fst_lock);
-			dp_rx_fisa_acquire_ft_lock(fisa_hdl, elem->reo_id);
-
 			/* Add SW FT entry */
 			dp_rx_fisa_update_sw_ft_entry(sw_ft_entry,
 						      flow_hash, elem->vdev,
@@ -1192,8 +1185,6 @@ static void dp_fisa_rx_fst_update(struct dp_rx_fst *fisa_hdl,
 			sw_ft_entry->add_timestamp = qdf_get_log_timestamp();
 
 			is_fst_updated = true;
-			dp_rx_fisa_release_ft_lock(fisa_hdl, elem->reo_id);
-			qdf_spin_lock_bh(&fisa_hdl->dp_rx_fst_lock);
 			wlan_dp_indicate_rx_flow_add(dp_ctx);
 			fisa_hdl->add_flow_count++;
 			break;
@@ -1390,65 +1381,6 @@ static void dp_fisa_rx_fst_del_queue(struct dp_rx_fst *fisa_hdl,
 	}
 }
 
-/* time in ns */
-#define FST_UPDATE_MON_TIME 1000000000
-#define MAX_ALLOWED_FST_UPDATE_PER_SEC 64
-#define MAX_ALLOWED_FST_UPDATE_PENDING 256
-
-static inline bool
-dp_fisa_rx_skip_fst_update(struct dp_rx_fst *fisa_hdl)
-{
-	uint64_t curr_time_ns;
-
-	qdf_spin_lock_bh(&fisa_hdl->dp_rx_fst_lock);
-	curr_time_ns = qdf_sched_clock();
-	if ((curr_time_ns - fisa_hdl->last_update_time_ns) >
-	    FST_UPDATE_MON_TIME) {
-		fisa_hdl->last_update_time_ns = curr_time_ns;
-		fisa_hdl->update_count = 0;
-	}
-
-	if (fisa_hdl->update_count >= MAX_ALLOWED_FST_UPDATE_PER_SEC ||
-	    (qdf_list_size(&fisa_hdl->fst_update_list) >=
-	     MAX_ALLOWED_FST_UPDATE_PENDING)) {
-		qdf_spin_unlock_bh(&fisa_hdl->dp_rx_fst_lock);
-		dp_debug_rl("Skip fst update update_cnt:%d list_size:%d",
-			    fisa_hdl->update_count,
-			    qdf_list_size(&fisa_hdl->fst_update_list));
-		return true;
-	}
-
-	fisa_hdl->update_count++;
-	qdf_spin_unlock_bh(&fisa_hdl->dp_rx_fst_lock);
-	return false;
-}
-
-static inline struct dp_fisa_rx_sw_ft *
-dp_fisa_find_flow_in_sw_ft(struct dp_rx_fst *fisa_hdl, uint32_t flow_hash,
-			   struct cdp_rx_flow_tuple_info *flow_tuple_info)
-{
-	uint32_t hashed_flow_idx = flow_hash & fisa_hdl->hash_mask;
-	uint32_t max_skid_length = fisa_hdl->max_skid_length;
-	uint32_t skid_count = 0;
-	struct dp_fisa_rx_sw_ft *sw_ft_entry;
-
-	do {
-		sw_ft_entry = &(((struct dp_fisa_rx_sw_ft *)
-					fisa_hdl->base)[hashed_flow_idx]);
-		if (sw_ft_entry->is_populated &&
-		    sw_ft_entry->flow_hash == flow_hash &&
-		    is_same_flow(&sw_ft_entry->rx_flow_tuple_info,
-				 flow_tuple_info))
-			return sw_ft_entry;
-
-		hashed_flow_idx++;
-		hashed_flow_idx &= fisa_hdl->hash_mask;
-		skid_count++;
-	} while (skid_count <= max_skid_length);
-
-	return NULL;
-}
-
 /**
  * dp_fisa_rx_queue_fst_update_work() - Queue FST update work
  * @fisa_hdl: Handle to FISA context
@@ -1467,6 +1399,7 @@ dp_fisa_rx_queue_fst_update_work(struct dp_rx_fst *fisa_hdl, uint32_t flow_idx,
 	uint8_t *rx_tlv_hdr = qdf_nbuf_data(nbuf);
 	struct dp_fisa_rx_fst_update_elem *elem;
 	struct dp_fisa_rx_sw_ft *sw_ft_entry;
+	uint32_t hashed_flow_idx;
 	uint32_t reo_dest_indication;
 	bool found;
 	struct hal_proto_params proto_params;
@@ -1489,18 +1422,18 @@ dp_fisa_rx_queue_fst_update_work(struct dp_rx_fst *fisa_hdl, uint32_t flow_idx,
 	if (found)
 		return NULL;
 
+	hashed_flow_idx = flow_idx & fisa_hdl->hash_mask;
+	sw_ft_entry = &(((struct dp_fisa_rx_sw_ft *)
+				fisa_hdl->base)[hashed_flow_idx]);
+
 	wlan_dp_get_flow_tuple_from_nbuf(fisa_hdl->dp_ctx, &flow_tuple_info,
 					 nbuf, rx_tlv_hdr);
 	if (flow_tuple_info.bypass_fisa)
 		return NULL;
 
-	sw_ft_entry = dp_fisa_find_flow_in_sw_ft(fisa_hdl, flow_idx,
-						 &flow_tuple_info);
-	if (sw_ft_entry)
+	if (sw_ft_entry->is_populated && is_same_flow(
+			&sw_ft_entry->rx_flow_tuple_info, &flow_tuple_info))
 		return sw_ft_entry;
-
-	if (dp_fisa_rx_skip_fst_update(fisa_hdl))
-		return NULL;
 
 	elem = qdf_mem_malloc(sizeof(*elem));
 	if (!elem) {
@@ -2251,7 +2184,6 @@ static void dp_rx_fisa_flush_flow(struct dp_vdev *vdev,
  * @hal_aggr_count: current aggregate count from RX PKT TLV
  * @hal_cumulative_ip_len: current cumulative ip length from RX PKT TLV
  * @rx_tlv_hdr: current msdu RX PKT TLV
- * @nbuf: incoming nbuf
  *
  * Return: true - current flow aggregation should stop,
  *	   false - continue to aggregate.
@@ -2260,7 +2192,7 @@ static bool dp_fisa_aggregation_should_stop(
 				struct dp_fisa_rx_sw_ft *fisa_flow,
 				uint32_t hal_aggr_count,
 				uint16_t hal_cumulative_ip_len,
-				uint8_t *rx_tlv_hdr, qdf_nbuf_t nbuf)
+				uint8_t *rx_tlv_hdr)
 {
 	uint32_t msdu_len =
 		hal_rx_msdu_start_msdu_len_get(fisa_flow->dp_ctx->hal_soc,
@@ -2270,10 +2202,9 @@ static bool dp_fisa_aggregation_should_stop(
 					   fisa_flow->hal_cumultive_ip_len;
 	uint32_t ip_csum_err = 0;
 	uint32_t tcp_udp_csum_err = 0;
-	uint32_t ip_frag;
 
 	hal_rx_tlv_csum_err_get(fisa_flow->dp_ctx->hal_soc, rx_tlv_hdr,
-				&ip_csum_err, &tcp_udp_csum_err, &ip_frag);
+				&ip_csum_err, &tcp_udp_csum_err);
 
 	hal_rx_get_l3_l4_offsets(fisa_flow->dp_ctx->hal_soc, rx_tlv_hdr,
 				 &l3_hdr_offset, &l4_hdr_offset);
@@ -2304,8 +2235,7 @@ static bool dp_fisa_aggregation_should_stop(
 	    hal_cumulative_ip_len <= fisa_flow->hal_cumultive_ip_len ||
 	    cumulative_ip_len_delta > FISA_MAX_SINGLE_CUMULATIVE_IP_LEN ||
 	    (fisa_flow->last_hal_aggr_count + 1) != hal_aggr_count ||
-	    cumulative_ip_len_delta != (msdu_len - l2_l3_hdr_len) ||
-	    msdu_len != QDF_NBUF_CB_RX_PKT_LEN(nbuf))
+	    cumulative_ip_len_delta != (msdu_len - l2_l3_hdr_len))
 		return true;
 
 	return false;
@@ -2407,7 +2337,7 @@ static int dp_add_nbuf_to_fisa_flow(struct dp_rx_fst *fisa_hdl,
 						fisa_flow,
 						hal_aggr_count,
 						hal_cumulative_ip_len,
-						rx_tlv_hdr, nbuf))) {
+						rx_tlv_hdr))) {
 			qdf_assert(0);
 			fisa_flow->do_not_aggregate = true;
 			/*
@@ -2420,7 +2350,7 @@ static int dp_add_nbuf_to_fisa_flow(struct dp_rx_fst *fisa_hdl,
 						fisa_flow,
 						hal_aggr_count,
 						hal_cumulative_ip_len,
-						rx_tlv_hdr, nbuf))) {
+						rx_tlv_hdr))) {
 		qdf_assert(0);
 		/* Either HW cumulative ip length is wrong, or packet is missed
 		 * Flush the flow and do not aggregate until next start new

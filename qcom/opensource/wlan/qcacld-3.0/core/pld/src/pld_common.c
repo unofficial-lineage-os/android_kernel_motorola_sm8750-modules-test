@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2016-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2025 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -922,24 +922,6 @@ bool pld_audio_is_direct_link_supported(struct device *dev)
 	return ret;
 }
 
-int pld_get_direct_link_sid(struct device *dev, uint16_t *sid)
-{
-	int ret = -EINVAL;
-
-	switch (pld_get_bus_type(dev)) {
-	case PLD_BUS_TYPE_PCIE:
-		ret = pld_pcie_get_direct_link_sid(dev, sid);
-		break;
-	case PLD_BUS_TYPE_IPCI:
-		ret = pld_ipci_get_direct_link_sid(dev, sid);
-		break;
-	default:
-		break;
-	}
-
-	return ret;
-}
-
 bool pld_is_audio_shared_iommu_group(struct device *dev)
 {
 	bool ret = false;
@@ -1708,8 +1690,7 @@ void *pld_smmu_get_mapping(struct device *dev)
 }
 #endif
 
-#if ((LINUX_VERSION_CODE >= KERNEL_VERSION(5, 15, 0)) || \
-	defined(CNSS_PLAT_WIFI_KOBJ_SUPPORT))
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 15, 0))
 struct kobject *pld_get_wifi_kobj(struct device *dev)
 {
 	struct kobject *wifi_kobj = NULL;
@@ -2424,25 +2405,6 @@ int pld_qmi_indication(struct device *dev, void *cb_ctx,
 		return -EINVAL;
 	case PLD_BUS_TYPE_IPCI:
 		return pld_ipci_register_qmi_ind(dev, cb_ctx, cb);
-	default:
-		pr_err("Invalid device type %d\n", bus_type);
-		return -EINVAL;
-	}
-}
-
-int pld_get_dump_inprogress(struct device *dev, uint8_t *val)
-{
-	enum pld_bus_type bus_type = pld_get_bus_type(dev);
-
-	switch (bus_type) {
-	case PLD_BUS_TYPE_PCIE:
-		return pld_pcie_get_dump_inprogress(dev, val);
-	case PLD_BUS_TYPE_SNOC:
-	case PLD_BUS_TYPE_SDIO:
-	case PLD_BUS_TYPE_USB:
-		return -EINVAL;
-	case PLD_BUS_TYPE_IPCI:
-		return pld_ipci_get_dump_inprogress(dev, val);
 	default:
 		pr_err("Invalid device type %d\n", bus_type);
 		return -EINVAL;

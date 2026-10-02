@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+ * Copyright (c) 2021-2024, Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -57,8 +57,6 @@
 #include <wlan_dp_ucfg_api.h>
 #include "wlan_psoc_mlme_ucfg_api.h"
 #include "wlan_action_oui_ucfg_api.h"
-#include "wlan_hdd_stats.h"
-#include "wlan_cp_stats_ucfg_api.h"
 
 #define MAX_ROAM_COUNT_VALUE (999)
 
@@ -834,7 +832,7 @@ def_chan:
 
 	ret = hdd_softap_set_channel_change(ap_adapter->deflink, ch_freq, 0,
 					    ch_bw, NO_SCHANS_PUNC, false, true);
-	if (ret && qdf_atomic_read(&hdd_ap_ctx->ch_switch_in_progress) <= 1) {
+	if (ret) {
 		hdd_err("Set channel with CSA IE failed, can't allow STA");
 		return false;
 	}
@@ -1625,7 +1623,7 @@ hdd_cm_mlme_send_standby_link_chn_width(struct hdd_adapter *adapter,
 	sta_ctx = WLAN_HDD_GET_STATION_CTX_PTR(link_info);
 	ch_width = sta_ctx->user_cfg_chn_width;
 
-	wlan_mlme_get_sta_ch_width(vdev, &connection_ch_width, NULL);
+	wlan_mlme_get_sta_ch_width(vdev, &connection_ch_width);
 
 	if (ch_width == CH_WIDTH_INVALID) {
 		hdd_debug("no cached bandwidth for the link %u", link_id);
@@ -1716,8 +1714,8 @@ hdd_cm_connect_success_pre_user_update(struct wlan_objmgr_vdev *vdev,
 			hdd_cm_save_connect_info(assoc_link_adapter->deflink,
 						 rsp);
 	}
-
-	hdd_add_beacon_filter(hdd_ctx, link_info->vdev_id);
+	if (hdd_add_beacon_filter(adapter) != 0)
+		hdd_err("add beacon filter failed");
 
 	adapter->wapi_info.is_wapi_sta = hdd_cm_is_wapi_sta(
 						sta_ctx->conn_info.auth_type);
@@ -1801,16 +1799,12 @@ hdd_cm_connect_success_pre_user_update(struct wlan_objmgr_vdev *vdev,
 			       sta_ctx->conn_info.chan_freq);
 	hdd_wmm_assoc(adapter, false, uapsd_mask);
 
-	/*
-	 * for vdev is_vdev_repurpose/OPEN/WEP/FILS, Set is auth required as
-	 * false, as keys are already set.
-	 */
-	if (is_vdev_repurpose || (!rsp->is_wps_connection &&
+	if (!rsp->is_wps_connection &&
 	    !rsp->is_osen_connection &&
 	    (sta_ctx->conn_info.auth_type == eCSR_AUTH_TYPE_NONE ||
 	     sta_ctx->conn_info.auth_type == eCSR_AUTH_TYPE_OPEN_SYSTEM ||
 	     sta_ctx->conn_info.auth_type == eCSR_AUTH_TYPE_SHARED_KEY ||
-	     hdd_cm_is_fils_connection(rsp))))
+	     hdd_cm_is_fils_connection(rsp)))
 		is_auth_required = false;
 
 	if (is_roam)
@@ -1824,11 +1818,11 @@ hdd_cm_connect_success_pre_user_update(struct wlan_objmgr_vdev *vdev,
 			is_auth_required =
 				hdd_cm_is_roam_auth_required(sta_ctx, rsp);
 			if (is_auth_required)
-				wlan_acquire_peer_key_wakelock(vdev,
-							       rsp->bssid.bytes);
+				wlan_acquire_peer_key_wakelock(hdd_ctx->pdev,
+							      rsp->bssid.bytes);
 		}
-		hdd_debug("is_roam_offload %d is_roam %d vdev repurpose %d is_auth_required %d",
-			  is_roam_offload, is_roam,  is_vdev_repurpose, is_auth_required);
+		hdd_debug("is_roam_offload %d, is_roam %d, is_auth_required %d",
+			  is_roam_offload, is_roam, is_auth_required);
 		hdd_roam_register_sta(link_info, &rsp->bssid, is_auth_required);
 	} else {
 		/* for host roam/LFR2 */
@@ -1887,46 +1881,6 @@ hdd_cm_connect_success_pre_user_update(struct wlan_objmgr_vdev *vdev,
 	 /* hdd_objmgr_set_peer_mlme_auth_state */
 }
 
-#if defined(WLAN_FEATURE_11BE_MLO)
-static void hdd_post_conn_clear_bcn_rssi_stats(
-		struct wlan_objmgr_psoc *psoc,
-		struct wlan_hdd_link_info *link_info,
-		struct wlan_cm_connect_resp *rsp)
-{
-	struct mlo_link_info *rsp_partner_info;
-	uint8_t link_id = 0;
-	int i;
-	struct wlan_hdd_link_info *parnter_link_info;
-
-	if (!ucfg_cp_stats_is_bcn_rssi_history_report_cfg_enable(psoc))
-		return;
-
-	wlan_hdd_reset_bcn_rssi_history_stats(link_info);
-	for (i = 0 ; i < rsp->ml_parnter_info.num_partner_links; i++) {
-		rsp_partner_info = &rsp->ml_parnter_info.partner_link_info[i];
-		link_id = rsp_partner_info->link_id;
-		parnter_link_info = hdd_get_link_info_by_ieee_link_id(
-					link_info->adapter,
-					link_id, false);
-		if (!parnter_link_info) {
-			hdd_debug("no found link info for %d", link_id);
-			continue;
-		}
-		wlan_hdd_reset_bcn_rssi_history_stats(parnter_link_info);
-	}
-}
-#else
-static void hdd_post_conn_clear_bcn_rssi_stats(
-		struct wlan_objmgr_psoc *psoc,
-		struct wlan_hdd_link_info *link_info,
-		struct wlan_cm_connect_resp *rsp)
-{
-	if (!ucfg_cp_stats_is_bcn_rssi_history_report_cfg_enable(psoc))
-		return;
-	wlan_hdd_reset_bcn_rssi_history_stats(link_info);
-}
-#endif
-
 static void
 hdd_cm_connect_success_post_user_update(struct wlan_objmgr_vdev *vdev,
 					struct wlan_cm_connect_resp *rsp)
@@ -1955,7 +1909,7 @@ hdd_cm_connect_success_post_user_update(struct wlan_objmgr_vdev *vdev,
 
 	adapter = link_info->adapter;
 	hdd_cm_clear_pmf_stats(adapter);
-	hdd_post_conn_clear_bcn_rssi_stats(hdd_ctx->psoc, link_info, rsp);
+
 	if (adapter->device_mode == QDF_STA_MODE ||
 	    adapter->device_mode == QDF_P2P_CLIENT_MODE) {
 		/* Inform FTM TIME SYNC about the connection with AP */

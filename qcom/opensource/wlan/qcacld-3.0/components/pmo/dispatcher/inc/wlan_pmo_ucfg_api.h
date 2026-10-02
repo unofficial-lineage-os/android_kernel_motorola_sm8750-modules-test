@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2017-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+ * Copyright (c) 2021-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -541,15 +541,6 @@ QDF_STATUS ucfg_pmo_disable_hw_filter_in_fwr(struct wlan_objmgr_vdev *vdev);
 uint8_t ucfg_pmo_max_mc_addr_supported(struct wlan_objmgr_psoc *psoc);
 
 /**
- * ucfg_pmo_rate_limit_needed() -  check allow or not to set mc addr list
- * wmi cmd to fw based on pending cmds
- * @psoc: objmgr psoc
- *
- * Return: bool
- */
-bool ucfg_pmo_rate_limit_needed(struct wlan_objmgr_psoc *psoc);
-
-/**
  * ucfg_pmo_cache_mc_addr_list(): API to cache mc addr list in pmo vdev priv obj
  * @mc_list_config: list configuration
  *
@@ -591,15 +582,6 @@ ucfg_pmo_enhanced_mc_filter_disable(struct wlan_objmgr_vdev *vdev)
 {
 	return pmo_core_enhanced_mc_filter_disable(vdev);
 }
-
-/**
- * ucfg_pmo_tgt_psoc_get_runtime_pm_in_progress() - get runtime status
- * @psoc: objmgr psoc
- *
- * Return: true if runtime pm is in progress else false
- */
-bool
-ucfg_pmo_tgt_psoc_get_runtime_pm_in_progress(struct wlan_objmgr_psoc *psoc);
 
 #ifdef FEATURE_WLAN_DYNAMIC_ARP_NS_OFFLOAD
 /**
@@ -1367,24 +1349,8 @@ ucfg_pmo_get_active_mc_bc_apf_mode(struct wlan_objmgr_psoc *psoc);
  * Return: true if enabled, it is intersection of ini and target cap
  */
 bool ucfg_pmo_is_apf_enabled(struct wlan_objmgr_psoc *psoc);
-
-/**
- * ucfg_pmo_is_configure_apf_per_screen_state() - To get enable active mode apf
- * configuration
- * @psoc: objmgr psoc handle
- *
- * Return: true if enabled, else false
- */
-bool ucfg_pmo_is_configure_apf_per_screen_state(
-					struct wlan_objmgr_psoc *psoc);
 #else
 static inline bool ucfg_pmo_is_apf_enabled(struct wlan_objmgr_psoc *psoc)
-{
-	return false;
-}
-
-static inline bool ucfg_pmo_is_configure_apf_per_screen_state(
-					struct wlan_objmgr_psoc *psoc)
 {
 	return false;
 }
@@ -1724,11 +1690,6 @@ ucfg_pmo_cache_mc_addr_list(
 		struct pmo_mc_addr_list_params *mc_list_config)
 {
 	return QDF_STATUS_SUCCESS;
-}
-
-bool ucfg_pmo_rate_limit_needed(struct wlan_objmgr_psoc *psoc)
-{
-	return false;
 }
 
 static inline QDF_STATUS
@@ -2571,26 +2532,4 @@ QDF_STATUS ucfg_pmo_get_vdev_bridge_addr(struct wlan_objmgr_vdev *vdev,
  * Return: true if FW debug is enable otherwise false
  */
 bool ucfg_pmo_is_fw_debug_enable(struct wlan_objmgr_psoc *psoc);
-
-/**
- * ucfg_pmo_get_ns_offload_enable_dynamic() - get NS offload dynamic enable
- * @vdev: vdev objmgr handle
- *
- * Return: true is NS offload is dynamically disabled else false
- */
-bool
-ucfg_pmo_get_ns_offload_enable_dynamic(struct wlan_objmgr_vdev *vdev);
-
-/**
- * ucfg_pmo_set_ns_offload_enable_dynamic() - Set NS offload dynamic enable
- * @vdev: vdev objmgr handle
- * @trigger: pmo trigger
- * @ns_offload_enable_dyn: NS offload enable dynamic
- *
- * Return: None
- */
-void
-ucfg_pmo_set_ns_offload_enable_dynamic(struct wlan_objmgr_vdev *vdev,
-				       enum pmo_offload_trigger trigger,
-				       bool ns_offload_enable_dyn);
 #endif /* end  of _WLAN_PMO_UCFG_API_H_ */

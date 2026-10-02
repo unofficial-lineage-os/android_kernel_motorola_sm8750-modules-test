@@ -1,5 +1,5 @@
 /*
- * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+ * Copyright (c) 2023-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -19,8 +19,6 @@
 #include "wlan_sm_engine.h"
 #include "wlan_policy_mgr_api.h"
 #include "wlan_policy_mgr_ll_sap.h"
-#include "wlan_dcs_ucfg_api.h"
-#include "wlan_ll_sap_api.h"
 
 #define BEARER_SWITCH_TIMEOUT 5000
 #define BEARER_SWITCH_WLAN_REQ_TIMEOUT 5000
@@ -37,7 +35,7 @@ wlan_bs_req_id ll_lt_sap_bearer_switch_get_id(struct wlan_objmgr_psoc *psoc)
 	uint8_t vdev_id;
 
 	vdev_id = wlan_policy_mgr_get_ll_lt_sap_vdev_id(psoc);
-	if (vdev_id >= WLAN_UMAC_PSOC_MAX_VDEVS)
+	if (vdev_id == WLAN_INVALID_VDEV_ID)
 		return request_id;
 	vdev = wlan_objmgr_get_vdev_by_id_from_psoc(psoc, vdev_id,
 						    WLAN_LL_SAP_ID);
@@ -92,14 +90,26 @@ bool __ll_lt_sap_is_bs_req_valid(struct wlan_bearer_switch_request *bs_req,
 	return true;
 }
 
-void
+/**
+ * ll_lt_sap_deliver_audio_transport_switch_resp_to_fw() - Deliver audio
+ * transport switch response to FW
+ * @vdev: Vdev on which the request is received
+ * @req_type: Transport switch type for which the response is received
+ * @status: Status of the response
+ *
+ * Return: None
+ */
+static void
 ll_lt_sap_deliver_audio_transport_switch_resp_to_fw(
-					struct wlan_objmgr_psoc *psoc,
+					struct wlan_objmgr_vdev *vdev,
 					enum bearer_switch_req_type req_type,
 					enum bearer_switch_status status)
 {
+	struct wlan_objmgr_psoc *psoc;
 	struct ll_sap_psoc_priv_obj *psoc_ll_sap_obj;
 	struct wlan_ll_sap_tx_ops *tx_ops;
+
+	psoc = wlan_vdev_get_psoc(vdev);
 
 	psoc_ll_sap_obj = wlan_objmgr_psoc_get_comp_private_obj(
 						psoc,
@@ -259,19 +269,11 @@ ll_lt_sap_invoke_req_callback_f(struct bearer_switch_info *bs_ctx,
 				struct wlan_bearer_switch_request *bs_req,
 				QDF_STATUS status, const char *func)
 {
-	struct wlan_objmgr_psoc *psoc;
-
-	psoc = wlan_vdev_get_psoc(bs_ctx->vdev);
-	if (!psoc) {
-		ll_sap_err("BS_SM invalid psoc");
-		return;
-	}
-
 	if (bs_req->source == BEARER_SWITCH_REQ_FW) {
 		if (status == QDF_STATUS_E_ALREADY ||
 		    status == QDF_STATUS_SUCCESS)
 			ll_lt_sap_deliver_audio_transport_switch_resp_to_fw(
-						psoc,
+						bs_ctx->vdev,
 						bs_req->req_type,
 						WLAN_BS_STATUS_COMPLETED);
 		else
@@ -395,20 +397,6 @@ ll_lt_sap_cache_bs_request(struct bearer_switch_info *bs_ctx,
 	uint8_t i;
 
 	for (i = 0; i < MAX_BEARER_SWITCH_REQUESTERS; i++) {
-
-		/* Check if duplicate CB is present, no need to add again */
-		if (bs_ctx->requests[i].requester_cb == bs_req->requester_cb &&
-		    bs_ctx->requests[i].vdev_id == bs_req->vdev_id &&
-		    bs_ctx->requests[i].req_type == bs_req->req_type &&
-		    bs_ctx->requests[i].arg_value == bs_req->arg_value &&
-		    bs_ctx->requests[i].arg == bs_req->arg &&
-		    bs_ctx->requests[i].source == bs_req->source) {
-			ll_sap_info(BS_PREFIX_FMT "req_vdev %d have already cached request %d at %d",
-			     BS_PREFIX_REF(wlan_vdev_get_id(bs_ctx->vdev),
-					   bs_req->request_id),
-			     bs_req->vdev_id, bs_req->req_type, i);
-			break;
-		}
 		/*
 		 * Find the empty slot in the requests array to cache the
 		 * current request
@@ -512,17 +500,16 @@ ll_lt_sap_invoke_bs_requester_cbks(struct bearer_switch_info *bs_ctx,
 				   QDF_STATUS status)
 {
 	struct wlan_objmgr_psoc *psoc;
-	uint8_t i, j;
-	struct wlan_bearer_switch_request req[MAX_BEARER_SWITCH_REQUESTERS];
+	uint8_t i;
 
 	psoc = wlan_vdev_get_psoc(bs_ctx->vdev);
+
 	if (!psoc) {
 		ll_sap_err("BS_SM invalid psoc");
 		return;
 	}
 
-	qdf_mem_zero(req, sizeof(req));
-	for (i = 0, j = 0; i < MAX_BEARER_SWITCH_REQUESTERS; i++) {
+	for (i = 0; i < MAX_BEARER_SWITCH_REQUESTERS; i++) {
 		if (!bs_ctx->requests[i].requester_cb)
 			continue;
 
@@ -533,30 +520,25 @@ ll_lt_sap_invoke_bs_requester_cbks(struct bearer_switch_info *bs_ctx,
 		if (bs_ctx->requests[i].req_type == WLAN_BS_REQ_TO_WLAN)
 			continue;
 
-		/*
-		 * Copy locally to make sure that callback dont add new req
-		 * Causing race in add and delete in req.
-		 */
-		req[j++] = bs_ctx->requests[i];
+		if ((bs_ctx->requests[i].source == BEARER_SWITCH_REQ_FW) &&
+		    (status == QDF_STATUS_E_TIMEOUT))
+			ll_lt_sap_deliver_audio_transport_switch_resp_to_fw(
+						bs_ctx->vdev,
+						bs_ctx->requests[i].req_type,
+						WLAN_BS_STATUS_TIMEOUT);
+		else
+			bs_ctx->requests[i].requester_cb(
+						psoc,
+						bs_ctx->requests[i].vdev_id,
+						bs_ctx->requests[i].request_id,
+						status,
+						bs_ctx->requests[i].arg_value,
+						bs_ctx->requests[i].arg);
 		bs_ctx->requests[i].requester_cb = NULL;
 		bs_ctx->requests[i].arg = NULL;
 		bs_ctx->requests[i].arg_value = 0;
 	}
 	ll_lt_sap_reorder_bs_req(bs_ctx);
-
-	/* Call the callbacks */
-	for (i = 0; i < j; i++) {
-		if ((req[i].source == BEARER_SWITCH_REQ_FW) &&
-		    (status == QDF_STATUS_E_TIMEOUT))
-			ll_lt_sap_deliver_audio_transport_switch_resp_to_fw(
-						psoc,
-						req[i].req_type,
-						WLAN_BS_STATUS_TIMEOUT);
-		else
-			req[i].requester_cb(psoc, req[i].vdev_id,
-					 req[i].request_id, status,
-					 req[i].arg_value, req[i].arg);
-	}
 }
 
 /*
@@ -674,7 +656,7 @@ ll_lt_sap_handle_bs_request_on_stop_ap(
 }
 
 /**
- * bs_wlan_request_timeout_cb() - Callback which will be invoked on bearer
+ * ll_lt_sap_continue_bs_to_wlan() - Callback which will be invoked on bearer
  * switch wlan req timeout
  * @user_data: Bearer switch context
  *
@@ -684,38 +666,13 @@ ll_lt_sap_handle_bs_request_on_stop_ap(
  * Return: None
  */
 static void
-bs_wlan_request_timeout_cb(void *user_data)
+ll_lt_sap_continue_bs_to_wlan(void *user_data)
 {
 	struct bearer_switch_info *bs_ctx = user_data;
 	struct wlan_bearer_switch_request *bs_req = NULL;
 	QDF_STATUS status;
-	bool cu_greater_than_th;
-	uint8_t vdev_id = wlan_vdev_get_id(bs_ctx->vdev);
-	struct wlan_objmgr_psoc *psoc;
-	uint32_t unused_cu;
 
-	psoc = wlan_vdev_get_psoc(bs_ctx->vdev);
-	if (!psoc) {
-		ll_sap_err("vdev %d PSOC is NULL", vdev_id);
-		return;
-	}
-
-	unused_cu = ll_sap_get_cur_freq_unused_cu(psoc, vdev_id);
-
-	ll_sap_debug("vdev %d: BS_SM bs_wlan_request_timer Timeout, CU %d",
-		     vdev_id, unused_cu);
-
-	cu_greater_than_th =
-			wlan_ll_sap_is_cur_cu_greater_than_th(psoc, vdev_id);
-
-	/*
-	 * If some module has requested for non wlan or cu is greter than
-	 * threshold during the timer, avoid moving bearer to wlan.
-	 */
-	if (qdf_atomic_read(&bs_ctx->total_ref_count) || cu_greater_than_th) {
-		ll_sap_info("vdev %d: Flush wlan req, as nonwlan ref count is %d or cu is %d",
-			    vdev_id, qdf_atomic_read(&bs_ctx->total_ref_count),
-			    unused_cu);
+	if (qdf_atomic_read(&bs_ctx->total_ref_count)) {
 		/*
 		 * Remove switch to wlan request from the cache list if
 		 * it was cached
@@ -779,16 +736,6 @@ ll_lt_sap_handle_bs_to_wlan_in_non_wlan_state(
 {
 	QDF_STATUS status = QDF_STATUS_SUCCESS;
 	bool is_bs_req_cached = false;
-	bool cu_greater_than_th;
-	uint8_t vdev_id = wlan_vdev_get_id(bs_ctx->vdev);
-	struct wlan_objmgr_psoc *psoc;
-
-	psoc = wlan_vdev_get_psoc(bs_ctx->vdev);
-	if (!psoc) {
-		ll_sap_err(BS_PREFIX_FMT "PSOC is NULL",
-			   BS_PREFIX_REF(vdev_id, bs_req->request_id));
-		return;
-	}
 
 	if (ll_lt_sap_find_bs_req_by_id(bs_ctx, bs_req->request_id))
 		is_bs_req_cached = true;
@@ -809,19 +756,12 @@ ll_lt_sap_handle_bs_to_wlan_in_non_wlan_state(
 			return;
 	}
 
-	cu_greater_than_th =
-		wlan_ll_sap_is_cur_cu_greater_than_th(psoc, vdev_id);
 	/*
-	 * If host driver did not requested for non wlan bearer OR
-	 * if current CU is greater than threshold then don't send
+	 * If host driver did not requested for non wlan bearer then don't send
 	 * a request to switch back to wlan
 	 */
-	if (!bs_ctx->sm.is_non_wlan_requested ||
-	    (!is_bs_req_cached && cu_greater_than_th)) {
-		ll_sap_debug(BS_PREFIX_FMT " Non wlan requested %d or cu_greater_than_th %d (cached %d), don't switch to wlan",
-			     BS_PREFIX_REF(vdev_id, bs_req->request_id),
-			     bs_ctx->sm.is_non_wlan_requested,
-			     cu_greater_than_th, is_bs_req_cached);
+	if (!bs_ctx->sm.is_non_wlan_requested) {
+		ll_sap_debug("Non wlan is not requested, don't switch to wlan");
 		goto invoke_requester_cb;
 	}
 
@@ -843,7 +783,7 @@ ll_lt_sap_handle_bs_to_wlan_in_non_wlan_state(
 		ll_sap_err(BS_PREFIX_FMT "Failed to start timer",
 			   BS_PREFIX_REF(wlan_vdev_get_id(bs_ctx->vdev),
 					 bs_req->request_id));
-		bs_wlan_request_timeout_cb(bs_ctx);
+		ll_lt_sap_continue_bs_to_wlan(bs_ctx);
 	}
 
 invoke_requester_cb:
@@ -1252,9 +1192,10 @@ ll_lt_sap_handle_bs_to_non_wlan_in_wlan_state(
  * @bs_ctx: Bearer switch context
  * @bs_req: Bearer switch request
  *
- * This scenario is possible if already switch to wlan is
- * requested and FW initiated switch to non wlan followed by switch to wlan.
- * In such case release the ref count if ref taken by the requester
+ * This scenario is not possible as if already switch to wlan is
+ * requested it means total_ref_count is already zero, so no other
+ * module should request for the bearer to switch to wlan. Hence drop
+ * this request.
  *
  * Return: None
  */
@@ -1263,7 +1204,6 @@ ll_lt_sap_handle_bs_to_wlan_in_wlan_req_state(
 				struct bearer_switch_info *bs_ctx,
 				struct wlan_bearer_switch_request *bs_req)
 {
-	ll_lt_sap_bs_decreament_ref_count(bs_ctx, bs_req);
 }
 
 /**
@@ -1343,19 +1283,11 @@ ll_lt_sap_handle_bs_to_wlan_timeout(
 				struct bearer_switch_info *bs_ctx,
 				struct wlan_bearer_switch_request *bs_req)
 {
-	struct wlan_objmgr_psoc *psoc;
-
-	psoc = wlan_vdev_get_psoc(bs_ctx->vdev);
-	if (!psoc) {
-		ll_sap_err("BS_SM invalid psoc");
-		return;
-	}
-
 	bs_sm_transition_to(bs_ctx, BEARER_WLAN);
 
 	if (bs_req->source == BEARER_SWITCH_REQ_FW)
 		ll_lt_sap_deliver_audio_transport_switch_resp_to_fw(
-							psoc,
+							bs_ctx->vdev,
 							bs_req->req_type,
 							WLAN_BS_STATUS_TIMEOUT);
 
@@ -1833,7 +1765,7 @@ static void bs_timers_init(struct bearer_switch_info *bs_ctx)
 	qdf_mc_timer_init(&bs_ctx->bs_request_timer, QDF_TIMER_TYPE_SW,
 			  bs_req_timeout_cb, bs_ctx);
 	qdf_mc_timer_init(&bs_ctx->bs_wlan_request_timer, QDF_TIMER_TYPE_SW,
-			  bs_wlan_request_timeout_cb, bs_ctx);
+			  ll_lt_sap_continue_bs_to_wlan, bs_ctx);
 }
 
 /**
@@ -1971,11 +1903,8 @@ ll_lt_sap_request_for_audio_transport_switch(
 					struct wlan_objmgr_vdev *vdev,
 					enum bearer_switch_req_type req_type)
 {
-	struct wlan_objmgr_pdev *pdev;
-	struct wlan_objmgr_psoc *psoc;
 	struct ll_sap_vdev_priv_obj *ll_sap_obj;
 	struct bearer_switch_info *bearer_switch_ctx;
-	uint8_t pdev_id;
 
 	ll_sap_obj = ll_sap_get_vdev_priv_obj(vdev);
 
@@ -1988,18 +1917,6 @@ ll_lt_sap_request_for_audio_transport_switch(
 	if (!bearer_switch_ctx)
 		return QDF_STATUS_E_INVAL;
 
-	pdev = wlan_vdev_get_pdev(vdev);
-	if (!pdev) {
-		ll_sap_debug("pdev is NULL");
-		return QDF_STATUS_E_INVAL;
-	}
-	pdev_id = wlan_objmgr_pdev_get_pdev_id(pdev);
-	psoc = wlan_pdev_get_psoc(pdev);
-	if (!psoc) {
-		ll_sap_debug("psoc is NULL");
-		return QDF_STATUS_E_INVAL;
-	}
-
 	/*
 	 * Request to switch to non-wlan can always be accepted so,
 	 * always return success
@@ -2009,34 +1926,25 @@ ll_lt_sap_request_for_audio_transport_switch(
 			     wlan_vdev_get_id(vdev));
 		return QDF_STATUS_SUCCESS;
 	} else if (req_type == WLAN_BS_REQ_TO_WLAN) {
-		uint32_t coch_int_thrsld =
-			wlan_dcs_get_trnsprt_switch_rjt_th_cu(psoc, pdev_id);
-		QDF_TIMER_STATE timer_state =
-			qdf_mc_timer_get_current_state(
-				&bearer_switch_ctx->bs_wlan_request_timer);
 		/*
-		 * Total_ref_count is non zero, indicates that some module wants
-		 * to stay in non-wlan mode, also if bs_wlan_request_timer is
-		 * running mean non-wlan req is pending, so reject req.
-		 * Also check if current freq cu is greater than threshold
+		 * Total_ref_count zero indicates that no module wants to stay
+		 * in non-wlan mode so this request can be accepted
 		 */
-		if (qdf_atomic_read(&bearer_switch_ctx->total_ref_count) ||
-		    timer_state == QDF_TIMER_STATE_RUNNING ||
-		    ll_sap_obj->cur_freq_unused_cu > coch_int_thrsld) {
-			ll_sap_debug("BS_SM vdev %d WLAN_BS_REQ_TO_WLAN rejected, total ref count %d timer state %d cur_freq_unused_cu %u (threshold %u)",
-				     wlan_vdev_get_id(vdev),
-				     qdf_atomic_read(&bearer_switch_ctx->total_ref_count),
-				     timer_state,
-				     ll_sap_obj->cur_freq_unused_cu,
-				     coch_int_thrsld);
-
-			return QDF_STATUS_E_FAILURE;
+		if (!qdf_atomic_read(&bearer_switch_ctx->total_ref_count) &&
+		    (QDF_TIMER_STATE_RUNNING !=
+			qdf_mc_timer_get_current_state(
+				&bearer_switch_ctx->bs_wlan_request_timer))) {
+			ll_sap_debug("BS_SM vdev %d WLAN_BS_REQ_TO_WLAN accepted",
+				     wlan_vdev_get_id(vdev));
+			return QDF_STATUS_SUCCESS;
 		}
-		ll_sap_debug("BS_SM vdev %d WLAN_BS_REQ_TO_WLAN accepted, timer state %d ref %d cur_freq_unused_cu %u (threshold %u)",
-			     wlan_vdev_get_id(vdev), timer_state,
+		ll_sap_debug("BS_SM vdev %d WLAN_BS_REQ_TO_WLAN rejected, total ref count %d timer state %d",
+			     wlan_vdev_get_id(vdev),
 			     qdf_atomic_read(&bearer_switch_ctx->total_ref_count),
-			     ll_sap_obj->cur_freq_unused_cu, coch_int_thrsld);
-		return QDF_STATUS_SUCCESS;
+			     qdf_mc_timer_get_current_state(
+				&bearer_switch_ctx->bs_wlan_request_timer));
+
+		return QDF_STATUS_E_FAILURE;
 	}
 	ll_sap_err("BS_SM vdev %d Invalid audio transport type %d",
 		   wlan_vdev_get_id(vdev), req_type);
@@ -2154,15 +2062,11 @@ static void ll_lt_sap_deliver_non_wlan_audio_transport_switch_resp(
 	 * If there is no cached request in BS_SM, it means that some other
 	 * module has performed the bearer switch and it is not a response of
 	 * the wlan bearer switch request, so just update the current state of
-	 * the state machine, in case status is completed, return if status is
-	 * not completed.
+	 * the state machine
 	 */
-	if (status != WLAN_BS_STATUS_COMPLETED) {
-		ll_sap_debug("Vdev %d, Bearer switch to non-WLAN by other module failed %d",
-			     wlan_vdev_get_id(vdev), status);
-		return;
-	}
-	bs_sm_transition_to(bs_ctx, BEARER_NON_WLAN);
+	ll_sap_debug("Bearer switch for non-wlan module's request");
+
+	bs_sm_state_update(bs_ctx, BEARER_NON_WLAN);
 }
 
 void
@@ -2171,16 +2075,8 @@ ll_lt_sap_deliver_audio_transport_switch_resp(
 				enum bearer_switch_req_type req_type,
 				enum bearer_switch_status status)
 {
-	struct wlan_objmgr_psoc *psoc;
-
-	psoc = wlan_vdev_get_psoc(vdev);
-	if (!psoc) {
-		ll_sap_err("BS_SM invalid psoc");
-		return;
-	}
-
-	ll_lt_sap_deliver_audio_transport_switch_resp_to_fw(psoc, req_type,
-							    status);
+	ll_lt_sap_deliver_audio_transport_switch_resp_to_fw(vdev, req_type,
+							   status);
 
 	if (req_type == WLAN_BS_REQ_TO_NON_WLAN)
 		ll_lt_sap_deliver_non_wlan_audio_transport_switch_resp(

@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2013-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+ * Copyright (c) 2021-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -126,7 +126,6 @@
 #include "wlan_dp_ucfg_api.h"
 #include "wma_pasn_peer_api.h"
 #include "target_if_mgmt_rx_srng.h"
-#include "wlan_cp_stats_utils_api.h"
 
 #define WMA_LOG_COMPLETION_TIMER 500 /* 500 msecs */
 #define WMI_TLV_HEADROOM 128
@@ -346,13 +345,12 @@ wma_get_concurrency_support(struct wlan_objmgr_psoc *psoc)
  * Version 6 - sta dump info updated
  * Version 7 - NAN standard plus feature support updated
  * Version 8 - INI based NAN EHT capability support updated
- * Version 9 - MHS power save feature support updated
  *
  * Return: None
  */
 static void wma_update_set_feature_version(struct target_feature_set *fs)
 {
-	fs->feature_set_version = 9;
+	fs->feature_set_version = 8;
 }
 
 /**
@@ -742,7 +740,6 @@ static void wma_set_default_tgt_config(tp_wma_handle wma_handle,
 		policy_mgr_get_max_conc_cxns(wma_handle->psoc);
 	tgt_cfg->num_max_mlo_link_per_ml_bss =
 		wlan_mlme_get_sta_mlo_conn_max_num(wma_handle->psoc);
-	tgt_cfg->haps_feature_flags = ucfg_dp_get_haps_config(wma_handle->psoc);
 	cfg_nan_get_max_ndi(wma_handle->psoc,
 			    &tgt_cfg->max_ndi);
 
@@ -774,9 +771,6 @@ static void wma_set_default_tgt_config(tp_wma_handle wma_handle,
 		wma_set_smem_mailbox_feature(wma_handle, tgt_cfg);
 	if (wma_is_epm_supported_cfg(wma_handle))
 		wma_set_epm_feature(wma_handle, tgt_cfg);
-
-	tgt_cfg->enable_bcn_rssi_history_report =
-			cds_cfg->enable_bcn_rssi_history_report;
 }
 
 /**
@@ -6424,7 +6418,7 @@ static void wma_update_mlme_aux_dev_caps(struct wlan_objmgr_psoc *psoc,
 	struct wlan_mlme_aux_dev_caps
 		wlan_mlme_aux0_dev_caps[WLAN_MLME_HW_MODE_MAX] = {0};
 
-	if ((int32_t)WMI_HOST_HW_MODE_MAX != (int32_t)WLAN_MLME_HW_MODE_MAX)
+	if (WMI_HOST_HW_MODE_MAX != WLAN_MLME_HW_MODE_MAX)
 		wma_err("struct define mismatch, pls fix it.");
 
 	num_aux_dev_caps =
@@ -6739,10 +6733,6 @@ static void wma_set_mlme_caps(struct wlan_objmgr_psoc *psoc)
 	status = mlme_set_tgt_wpa3_roam_cap(psoc, akm_bitmap);
 	if (QDF_IS_STATUS_ERROR(status))
 		wma_err("Failed to set sae roam support");
-
-	tgt_cap = wmi_service_enabled(wma->wmi_handle,
-				      wmi_service_mrsno_support);
-	ucfg_mlme_set_mrsno_support(psoc, tgt_cap);
 }
 
 #ifdef WLAN_FEATURE_BIG_DATA_STATS
@@ -6976,7 +6966,8 @@ int wma_rx_service_ready_event(void *handle, uint8_t *cmd_param_info,
 	wma_handle->hw_bd_info[BOARD_DATA_REV] =
 		WMI_GET_BOARD_DATA_REV(ev->hw_bd_info);
 
-	wma_info("Board version: %x %x %x %x %x",
+	wma_info("Board id: %x, Board version: %x %x %x %x %x",
+		 wma_handle->hw_bd_id,
 		 wma_handle->hw_bd_info[BDF_VERSION],
 		 wma_handle->hw_bd_info[REF_DESIGN_ID],
 		 wma_handle->hw_bd_info[CUSTOMER_ID],

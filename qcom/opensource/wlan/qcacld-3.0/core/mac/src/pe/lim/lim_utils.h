@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2012-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2025 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -1070,25 +1070,9 @@ bool lim_check_disassoc_deauth_ack_pending(struct mac_context *mac,
 
 void lim_pmf_sa_query_timer_handler(void *pMacGlobal, uint32_t param);
 void lim_pmf_comeback_timer_callback(void *context);
-
-/**
- *
- * lim_set_protected_bit() - API to set the protected bit in the management
- * frame.
- *
- * @mac: Pointer to Global MAC structure
- * @pe_session: Pointer to session corresponding to the connection
- * @peer_mac: Peer address of the STA to which the frame is to be sent
- * @pMacHdr: Pointer to the frame MAC header
- *
- * This function is called by various LIM modules to correctly set
- * the Protected bit in the Frame Control Field of the 802.11 frame MAC header
- *
- * Return: none
- */
 void lim_set_protected_bit(struct mac_context *mac,
 	struct pe_session *pe_session,
-	tSirMacAddr peer_mac, tpSirMacMgmtHdr pMacHdr);
+	tSirMacAddr peer, tpSirMacMgmtHdr pMacHdr);
 
 void lim_set_ht_caps(struct mac_context *p_mac, uint8_t *p_ie_start,
 		     uint32_t num_bytes);
@@ -1583,14 +1567,6 @@ void lim_update_stads_he_capable(tpDphHashNode sta_ds, tpSirAssocReq assoc_req);
  */
 void lim_update_session_he_capable(struct mac_context *mac, struct pe_session *session);
 
-/*
- * lim_reset_session_he_capable(): Reset he_capable flag in PE session
- * @pe_session: pointer to PE session
- *
- * Return: None
- */
-void lim_reset_session_he_capable(struct pe_session *session);
-
 /**
  * lim_update_session_he_capable_chan_switch(): Update he_capable in PE session
  * @mac: pointer to MAC context
@@ -1836,10 +1812,6 @@ static inline void lim_update_bss_he_capable(struct mac_context *mac,
 {
 }
 
-static inline void lim_reset_session_he_capable(struct pe_session *session)
-{
-}
-
 static inline void lim_update_stads_he_capable(tpDphHashNode sta_ds,
 		tpSirAssocReq assoc_req)
 {
@@ -2071,12 +2043,13 @@ void lim_intersect_sta_eht_caps(struct mac_context *mac_ctx,
 
 /**
  * lim_update_session_eht_capable(): Update eht_capable in PE session
+ * @mac: pointer to MAC context
  * @session: pointer to PE session
- * @val: EHT capability
  *
  * Return: None
  */
-void lim_update_session_eht_capable(struct pe_session *session, bool val);
+void lim_update_session_eht_capable(struct mac_context *mac,
+				    struct pe_session *session);
 
 /**
  * lim_add_bss_eht_cfg() - Set EHT config to BSS params
@@ -2232,12 +2205,14 @@ void lim_log_eht_op(struct mac_context *mac, tDot11fIEeht_op *eht_ops,
  * @sta_ds: pointer to sta dph hash table entry
  * @assoc_rsp: pointer to assoc response
  * @session_entry: pointer to PE session
+ * @beacon: pointer to beacon
  *
  * Return: None
  */
 void lim_update_stads_eht_caps(struct mac_context *mac_ctx,
 			       tpDphHashNode sta_ds, tpSirAssocRsp assoc_rsp,
-			       struct pe_session *session_entry);
+			       struct pe_session *session_entry,
+			       tSchBeaconStruct *beacon);
 
 /**
  * lim_update_stads_eht_bw_320mhz() - Set ch_width to 320MHz for sta_ds
@@ -2396,7 +2371,8 @@ void lim_intersect_sta_eht_caps(struct mac_context *mac_ctx,
 }
 
 static inline
-void lim_update_session_eht_capable(struct pe_session *session, bool val)
+void lim_update_session_eht_capable(struct mac_context *mac,
+				    struct pe_session *session)
 {
 }
 
@@ -2464,7 +2440,8 @@ lim_log_eht_op(struct mac_context *mac, tDot11fIEeht_op *eht_ops,
 static inline void
 lim_update_stads_eht_caps(struct mac_context *mac_ctx,
 			  tpDphHashNode sta_ds, tpSirAssocRsp assoc_rsp,
-			  struct pe_session *session_entry)
+			  struct pe_session *session_entry,
+			  tSchBeaconStruct *beacon)
 {
 }
 
@@ -3388,7 +3365,6 @@ bool lim_update_channel_width(struct mac_context *mac_ctx,
 enum phy_ch_width lim_get_vht_ch_width(tDot11fIEVHTCaps *vht_cap,
 				       tDot11fIEVHTOperation *vht_op,
 				       tDot11fIEHTInfo *ht_info,
-				       tDot11fIEHTCaps *ht_cap,
 				       tDot11fIEOperatingMode *omn_ie);
 
 /*

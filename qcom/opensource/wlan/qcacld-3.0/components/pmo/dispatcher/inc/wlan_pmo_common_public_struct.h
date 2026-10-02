@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2017-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+ * Copyright (c) 2021-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -103,7 +103,6 @@ enum pmo_beacon_dtim_policy {
  *  before the entering the Active state
  * @pmo_sta_ps_param_ito_repeat_count: Indicates ito repeated count
  * @pmo_sta_ps_param_spec_wake_interval: OPM speculative wake interval
- * @pmo_sta_ps_param_opm_level: OPM power save level
  */
 enum pmo_sta_powersave_param {
 	pmo_sta_ps_param_rx_wake_policy = 0,
@@ -116,7 +115,6 @@ enum pmo_sta_powersave_param {
 	pmo_sta_ps_param_advanced_power_max_tx_before_wake = 7,
 	pmo_sta_ps_param_ito_repeat_count = 8,
 	pmo_sta_ps_param_spec_wake_interval = 9,
-	pmo_sta_ps_param_opm_level = 10,
 };
 
 /**
@@ -172,13 +170,11 @@ enum pmo_wow_enable_type {
  * @PMO_PS_ADVANCED_POWER_SAVE_DISABLE: Disable advanced power save mode
  * @PMO_PS_ADVANCED_POWER_SAVE_ENABLE: Enable power save mode
  * @PMO_PS_ADVANCED_POWER_SAVE_USER_DEFINED: User Defined
- * @PMO_PS_ADVANCED_POWER_SAVE_LATENCY_BASED : Latency Enabled
  */
 enum powersave_mode {
 	PMO_PS_ADVANCED_POWER_SAVE_DISABLE = 0,
 	PMO_PS_ADVANCED_POWER_SAVE_ENABLE = 1,
-	PMO_PS_ADVANCED_POWER_SAVE_USER_DEFINED = 2,
-	PMO_PS_ADVANCED_POWER_SAVE_LATENCY_BASED = 3
+	PMO_PS_ADVANCED_POWER_SAVE_USER_DEFINED = 2
 };
 
 /**
@@ -437,8 +433,6 @@ enum pmo_page_fault_action {
  * wakeups needs to be monitored.
  * @ssr_frequency_on_pagefault: Time in ms in which SSR needs to be triggered
  * on max pagefault
- * @is_apf_configure_per_screen_state: Configure APF mode enable/disable
- * per screen off/on state
  */
 struct pmo_psoc_cfg {
 	bool ptrn_match_enable_all_vdev;
@@ -529,7 +523,6 @@ struct pmo_psoc_cfg {
 	uint8_t min_pagefault_wakeups_for_action;
 	uint32_t interval_for_pagefault_wakeup_counts;
 	uint32_t ssr_frequency_on_pagefault;
-	bool is_apf_configure_per_screen_state;
 };
 
 /**
@@ -573,13 +566,11 @@ struct pmo_igmp_offload_req {
  * struct pmo_ps_params - structure to hold OPM params
  *
  * @opm_mode: OPM mode
- * @ps_opm_level: power save opm level
  * @ps_ito: power save inactivity timeout
  * @spec_wake: OPM speculative wake interval
  */
 struct pmo_ps_params {
 	enum powersave_mode opm_mode;
-	uint8_t ps_opm_level;
 	uint16_t ps_ito;
 	uint16_t spec_wake;
 };

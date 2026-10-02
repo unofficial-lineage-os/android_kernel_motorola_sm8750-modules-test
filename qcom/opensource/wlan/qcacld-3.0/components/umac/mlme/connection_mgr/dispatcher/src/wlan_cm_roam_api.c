@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2020-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+ * Copyright (c) 2021-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -178,7 +178,7 @@ cm_update_associated_ch_info(struct wlan_objmgr_vdev *vdev, bool is_update)
 	 * If there is a failure or operating mode is not STA / P2P-CLI
 	 * then get channel width from wlan_channel.
 	 */
-	status = wlan_mlme_get_sta_ch_width(vdev, &ch_width, NULL);
+	status = wlan_mlme_get_sta_ch_width(vdev, &ch_width);
 	if (QDF_IS_STATUS_ERROR(status))
 		assoc_chan_info->assoc_ch_width = des_chan->ch_width;
 	else
@@ -230,8 +230,6 @@ char *cm_roam_get_requestor_string(enum wlan_cm_rso_control_requestor requestor)
 		return "NDP connection";
 	case RSO_SET_PCL:
 		return "Set PCL";
-	case RSO_SET_LINK:
-		return "Set Link";
 	}
 }
 
@@ -272,7 +270,7 @@ QDF_STATUS wlan_cm_disable_rso(struct wlan_objmgr_pdev *pdev, uint8_t vdev_id,
 	uint8_t disable_reason = REASON_DRIVER_DISABLED;
 
 	if (reason == REASON_DRIVER_DISABLED && requestor)
-		mlme_set_rso_disabled_bitmap(psoc, vdev_id, requestor, false);
+		mlme_set_operations_bitmap(psoc, vdev_id, requestor, false);
 
 	if (reason == REASON_VDEV_RESTART_FROM_HOST)
 		disable_reason = REASON_VDEV_RESTART_FROM_HOST;
@@ -295,7 +293,7 @@ QDF_STATUS wlan_cm_enable_rso(struct wlan_objmgr_pdev *pdev, uint8_t vdev_id,
 	uint8_t enable_reason = REASON_DRIVER_ENABLED;
 
 	if (reason == REASON_DRIVER_ENABLED && requestor)
-		mlme_set_rso_disabled_bitmap(psoc, vdev_id, requestor, true);
+		mlme_set_operations_bitmap(psoc, vdev_id, requestor, true);
 
 	if (reason == REASON_VDEV_RESTART_FROM_HOST)
 		enable_reason = REASON_VDEV_RESTART_FROM_HOST;
@@ -927,10 +925,6 @@ QDF_STATUS wlan_cm_roam_cfg_get_value(struct wlan_objmgr_psoc *psoc,
 		break;
 	case ROAM_RSSI_DIFF_6GHZ:
 		dst_config->uint_value = src_cfg->roam_rssi_diff_6ghz;
-		break;
-	case ROAM_RSSI_DELTA_6GHZ_TO_NON_6GHZ:
-		dst_config->uint_value =
-			src_cfg->roam_rssi_delta_6ghz_to_non_6ghz;
 		break;
 	case NEIGHBOUR_LOOKUP_THRESHOLD:
 		dst_config->uint_value = src_cfg->neighbor_lookup_threshold;
@@ -1619,10 +1613,6 @@ wlan_cm_roam_cfg_set_value(struct wlan_objmgr_psoc *psoc, uint8_t vdev_id,
 	case ROAM_RSSI_DIFF_6GHZ:
 		dst_cfg->roam_rssi_diff_6ghz = src_config->uint_value;
 		break;
-	case ROAM_RSSI_DELTA_6GHZ_TO_NON_6GHZ:
-		dst_cfg->roam_rssi_delta_6ghz_to_non_6ghz =
-						src_config->uint_value;
-		break;
 	case NEIGHBOUR_LOOKUP_THRESHOLD:
 		dst_cfg->neighbor_lookup_threshold = src_config->uint_value;
 		fallthrough;
@@ -1858,8 +1848,6 @@ QDF_STATUS wlan_cm_rso_config_init(struct wlan_objmgr_vdev *vdev,
 		mlme_obj->cfg.lfr.roam_rssi_diff;
 	cfg_params->roam_rssi_diff_6ghz =
 		mlme_obj->cfg.lfr.roam_rssi_diff_6ghz;
-	cfg_params->roam_rssi_delta_6ghz_to_non_6ghz =
-		mlme_obj->cfg.lfr.roam_rssi_delta_6ghz_to_non_6ghz;
 	cfg_params->bg_rssi_threshold =
 		mlme_obj->cfg.lfr.bg_rssi_threshold;
 
@@ -3103,10 +3091,6 @@ cm_roam_vendor_handoff_event_handler(struct wlan_objmgr_psoc *psoc,
 
 	wlan_objmgr_vdev_release_ref(vdev, WLAN_MLME_OBJMGR_ID);
 
-	status = cm_roam_update_vendor_handoff_config(psoc, data);
-	if (QDF_IS_STATUS_ERROR(status))
-		mlme_debug("Failed to update params in rso_config struct");
-
 	status = mlme_cm_osif_get_vendor_handoff_params(psoc,
 							vendor_handoff_context);
 	if (QDF_IS_STATUS_ERROR(status)) {
@@ -3117,6 +3101,10 @@ cm_roam_vendor_handoff_event_handler(struct wlan_objmgr_psoc *psoc,
 	mlme_debug("Reset vendor handoff req in progress context");
 	mlme_priv->cm_roam.vendor_handoff_param.req_in_progress = false;
 	mlme_priv->cm_roam.vendor_handoff_param.vendor_handoff_context = NULL;
+
+	status = cm_roam_update_vendor_handoff_config(psoc, data);
+	if (QDF_IS_STATUS_ERROR(status))
+		mlme_debug("Failed to update params in rso_config struct");
 }
 #endif
 
@@ -3701,14 +3689,10 @@ cm_roam_stats_print_scan_info(struct wlan_objmgr_psoc *psoc,
 		buf_cons = qdf_snprint(tmp, buf_left, "{");
 		buf_left -= buf_cons;
 		tmp += buf_cons;
+
 		for (i = 0; i < num_ch; i++) {
 			buf_cons = qdf_snprint(tmp, buf_left, "%d ",
 					       scan->chan_freq[i]);
-			if (buf_cons > buf_left) {
-				mlme_err("buf_left size insufficient");
-				qdf_mem_free(buf);
-				return;
-			}
 			buf_left -= buf_cons;
 			tmp += buf_cons;
 		}
@@ -4275,11 +4259,6 @@ wlan_cm_update_roam_trigger_info(struct wlan_objmgr_vdev *vdev,
 	uint32_t index;
 	struct enhance_roam_info *info;
 	struct mlme_legacy_priv *mlme_priv = wlan_vdev_mlme_get_ext_hdl(vdev);
-
-	if (!mlme_priv) {
-		mlme_err("null mlme priv");
-		return;
-	}
 
 	index = mlme_priv->roam_write_index;
 	info = &mlme_priv->roam_info[index];
@@ -5066,8 +5045,7 @@ cm_roam_stats_event_handler(struct wlan_objmgr_psoc *psoc,
 		if (stats_info->trigger[i].present) {
 			bool is_full_scan =
 				stats_info->scan[i].present &&
-				(stats_info->scan[i].type ==
-				 WLAN_ROAM_SCAN_TYPE_FULL_SCAN);
+				stats_info->scan[i].type;
 
 			cm_cp_stats_cstats_roam_scan_start
 				(vdev, &stats_info->trigger[i], is_full_scan);
@@ -5913,22 +5891,16 @@ wlan_cm_add_frame_to_scan_db(struct wlan_objmgr_psoc *psoc,
 		wlan_cm_set_roam_offload_bssid(vdev, &bssid);
 	}
 
-	/* For 6GHz, get channel from HE OP IE */
-	extracted_ie = (uint8_t *)
-		wlan_get_ext_ie_ptr_from_ext_id(WLAN_HEOP_OUI_TYPE,
-						(uint8_t)
-						WLAN_HEOP_OUI_SIZE,
-						ie_ptr, ie_len);
-	if (extracted_ie && !qdf_mem_cmp(&extracted_ie[2], WLAN_HEOP_OUI_TYPE,
-					 WLAN_HEOP_OUI_SIZE) &&
-	   extracted_ie[1] <= WLAN_MAX_HEOP_IE_LEN) {
-		band = BIT(REG_BAND_6G);
-		primary_channel = util_scan_get_6g_oper_channel(extracted_ie);
-		if (primary_channel) {
-			mlme_debug("Extracted primary channel from HE OP : %d",
-				   primary_channel);
-			goto update_beacon;
-		}
+	/* For 2.4GHz,5GHz get channel from DS IE */
+	extracted_ie = (uint8_t *)wlan_get_ie_ptr_from_eid(WLAN_ELEMID_DSPARMS,
+							   ie_ptr, ie_len);
+	if (extracted_ie && extracted_ie[0] == WLAN_ELEMID_DSPARMS &&
+	    extracted_ie[1] == WLAN_DS_PARAM_IE_MAX_LEN) {
+		band = BIT(REG_BAND_2G) | BIT(REG_BAND_5G);
+		primary_channel = *(extracted_ie + 2);
+		mlme_debug("Extracted primary channel from DS : %d",
+			   primary_channel);
+		goto update_beacon;
 	}
 
 	/* For HT, VHT and non-6GHz HE, get channel from HTINFO IE */
@@ -5940,26 +5912,26 @@ wlan_cm_add_frame_to_scan_db(struct wlan_objmgr_psoc *psoc,
 		band = BIT(REG_BAND_2G) | BIT(REG_BAND_5G);
 		primary_channel =
 			((struct wlan_ie_htinfo *)extracted_ie)->
-							hi_ie.hi_ctrlchannel;
-		if (primary_channel) {
-			mlme_debug("Extracted primary channel from HT INFO : %d",
-				   primary_channel);
-			goto update_beacon;
-		}
+						hi_ie.hi_ctrlchannel;
+		mlme_debug("Extracted primary channel from HT INFO : %d",
+			   primary_channel);
+		goto update_beacon;
 	}
-
-	/* For 2.4GHz,5GHz get channel from DS IE */
-	extracted_ie = (uint8_t *)wlan_get_ie_ptr_from_eid(WLAN_ELEMID_DSPARMS,
-							   ie_ptr, ie_len);
-	if (extracted_ie && extracted_ie[0] == WLAN_ELEMID_DSPARMS &&
-	    extracted_ie[1] == WLAN_DS_PARAM_IE_MAX_LEN) {
-		band = BIT(REG_BAND_2G) | BIT(REG_BAND_5G);
-		primary_channel = *(extracted_ie + 2);
-		if (primary_channel) {
-			mlme_debug("Extracted primary channel from DS : %d",
-				   primary_channel);
+	/* For 6GHz, get channel from HE OP IE */
+	extracted_ie = (uint8_t *)
+			wlan_get_ext_ie_ptr_from_ext_id(WLAN_HEOP_OUI_TYPE,
+							(uint8_t)
+							WLAN_HEOP_OUI_SIZE,
+							ie_ptr, ie_len);
+	if (extracted_ie && !qdf_mem_cmp(&extracted_ie[2], WLAN_HEOP_OUI_TYPE,
+					 WLAN_HEOP_OUI_SIZE) &&
+	    extracted_ie[1] <= WLAN_MAX_HEOP_IE_LEN) {
+		band = BIT(REG_BAND_6G);
+		primary_channel = util_scan_get_6g_oper_channel(extracted_ie);
+		mlme_debug("Extracted primary channel from HE OP : %d",
+			   primary_channel);
+		if (primary_channel)
 			goto update_beacon;
-		}
 	}
 
 	mlme_err("Ignore beacon, Primary channel was not found in the candidate frame");

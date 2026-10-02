@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2016-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2025 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -176,12 +176,6 @@ pld_ipci_register_qmi_ind(struct device *dev, void *cb_ctx,
 	return -EINVAL;
 }
 
-static inline int
-pld_ipci_get_dump_inprogress(struct device *dev, uint8_t *val)
-{
-	return -EINVAL;
-}
-
 static inline int pld_ipci_thermal_register(struct device *dev,
 					    unsigned long max_state,
 					    int mon_id)
@@ -256,12 +250,6 @@ static inline bool pld_ipci_is_direct_link_supported(struct device *dev)
 static inline bool pld_ipci_audio_is_direct_link_supported(struct device *dev)
 {
 	return false;
-}
-
-static inline int pld_ipci_get_direct_link_sid(struct device *dev,
-					       uint16_t *sid)
-{
-	return -EINVAL;
 }
 
 static inline bool pld_ipci_is_audio_shared_iommu_group(struct device *dev)
@@ -464,7 +452,7 @@ pld_ipci_qmi_send(struct device *dev, int type, void *cmd,
 	return icnss_qmi_send(dev, type, cmd, cmd_len, cb_ctx, cb);
 }
 
-#if defined(WLAN_CHIPSET_STATS) && defined(CNSS_QMI_ASYNC_EVENT_SUPPORT)
+#ifdef WLAN_CHIPSET_STATS
 static inline int
 pld_ipci_register_qmi_ind(struct device *dev, void *cb_ctx,
 			  int (*cb)(void *ctx, uint16_t type,
@@ -472,20 +460,6 @@ pld_ipci_register_qmi_ind(struct device *dev, void *cb_ctx,
 {
 	return icnss_register_driver_async_data_cb(dev, cb_ctx, cb);
 }
-
-#if defined(CONFIG_SEC_SS_CNSS_FEATURE_SYSFS)
-static inline int
-pld_ipci_get_dump_inprogress(struct device *dev, uint8_t *val)
-{
-	return icnss_get_dump_inprogress(dev, val);
-}
-#else
-static inline int
-pld_ipci_get_dump_inprogress(struct device *dev, uint8_t *val)
-{
-	return -EPERM;
-}
-#endif
 #else
 static inline int
 pld_ipci_register_qmi_ind(struct device *dev, void *cb_ctx,
@@ -493,12 +467,6 @@ pld_ipci_register_qmi_ind(struct device *dev, void *cb_ctx,
 				    void *event, int event_len))
 {
 	return 0;
-}
-
-static inline int
-pld_ipci_get_dump_inprogress(struct device *dev, uint8_t *val)
-{
-	return -EINVAL;
 }
 #endif
 
@@ -651,20 +619,5 @@ int pld_ipci_get_fw_lpass_shared_mem(struct device *dev, dma_addr_t *iova,
 	return -EINVAL;
 }
 #endif
-
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(6, 6, 0))
-static inline int pld_ipci_get_direct_link_sid(struct device *dev,
-					       uint16_t *sid)
-{
-	return icnss_get_direct_link_sid(dev, sid);
-}
-#else
-static inline int pld_ipci_get_direct_link_sid(struct device *dev,
-					       uint16_t *sid)
-{
-	return -EINVAL;
-}
-#endif
-
 #endif
 #endif

@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2012-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2025 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -567,7 +567,7 @@
 	"gActionOUIDisableTWT", \
 	0, \
 	ACTION_OUI_MAX_STR_LEN, \
-	"001018 00 01 000986 00 01 000ce7 00 01 00e0fc 00 01 000b86 04 01040817 F0 01 000b86 04 0104080F F0 01 000b86 04 01040819 F0 01", \
+	"001018 00 01 000986 00 01 000ce7 00 01 00e0fc 00 01", \
 	"Used to specify action OUIs to control TWT configuration")
 
 /*
@@ -943,33 +943,6 @@
 	"F832E4 00 01", \
 	"disable dynamic SMPS capability for specified AP")
 
-/*
- * <ini>
- * CFG_ACTION_OUI_SKIP_BCN_CH_MISMATCH_CHK - Used to skip beacon
- * frame channel mismatch check for specified AP.
- *
- * Default OUIs: (All values in Hex)
- * OUI 1: 18FE34
- *   OUI data Len: 00
- *   Info Mask : 01 - only OUI present in Info mask
- *
- * Refer to gEnableActionOUI for more detail about the format.
- *
- * Related: gEnableActionOUI
- *
- * Supported Feature: Action OUIs
- *
- * Usage: External
- *
- * </ini>
- */
-#define CFG_ACTION_OUI_SKIP_BCN_CH_MISMATCH_CHK CFG_INI_STRING( \
-	"gActionOUISkipBcnChMismatchCheck", \
-	0, \
-	ACTION_OUI_MAX_STR_LEN, \
-	"18FE34 00 01", \
-	"skip beacon frame channel mismatch check for specified AP.")
-
 #define CFG_ACTION_OUI \
 	CFG(CFG_ACTION_OUI_CCKM_1X1) \
 	CFG(CFG_ACTION_OUI_CONNECT_1X1) \
@@ -994,6 +967,5 @@
 	CFG(CFG_ACTION_OUI_LIMIT_BW) \
 	CFG(CFG_ACTION_OUI_DISABLE_AUX_LISTEN) \
 	CFG(CFG_ACTION_OUI_DISABLE_DYNAMIC_SMPS) \
-	CFG(CFG_ACTION_OUI_SKIP_BCN_CH_MISMATCH_CHK) \
 	CFG(CFG_ENABLE_ACTION_OUI)
 #endif

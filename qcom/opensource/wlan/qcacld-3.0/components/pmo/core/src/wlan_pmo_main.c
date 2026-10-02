@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2017-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2025 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021,2023-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -291,8 +291,6 @@ static void wlan_pmo_init_cfg(struct wlan_objmgr_psoc *psoc,
 			cfg_get(psoc, CFG_ACTIVE_UC_APF_MODE);
 	psoc_cfg->active_mc_bc_apf_mode =
 			cfg_get(psoc, CFG_ACTIVE_MC_BC_APF_MODE);
-	psoc_cfg->is_apf_configure_per_screen_state =
-			cfg_get(psoc, CFG_CONFIGURE_APF_PER_SCREEN_STATE);
 	psoc_cfg->ito_repeat_count = cfg_get(psoc, CFG_ITO_REPEAT_COUNT);
 	wlan_pmo_ra_filtering_init_cfg(psoc, psoc_cfg);
 	wlan_pmo_gpio_wakeup_init_cfg(psoc, psoc_cfg);
@@ -548,20 +546,6 @@ uint32_t pmo_get_ssr_frequency_on_pagefault(struct wlan_objmgr_psoc *psoc)
 		return 0;
 
 	return pmo_psoc_ctx->psoc_cfg.ssr_frequency_on_pagefault;
-}
-
-bool pmo_rate_limit_needed(struct wlan_objmgr_psoc *psoc)
-{
-	bool rate_limit_needed = false;
-	int pending_cmds = pmo_tgt_psoc_get_pending_cmnds(psoc);
-
-	if (pending_cmds > WMI_MAX_CMDS / 2) {
-		rate_limit_needed = true;
-		pmo_debug_rl("pending_cmds %d max %d", pending_cmds,
-			     WMI_MAX_CMDS);
-	}
-
-	return rate_limit_needed;
 }
 
 QDF_STATUS pmo_get_vdev_bridge_addr(struct wlan_objmgr_vdev *vdev,

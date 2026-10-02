@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2018-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2025 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -1353,19 +1353,6 @@ QDF_STATUS wlan_mlme_update_bss_rate_flags(struct wlan_objmgr_psoc *psoc,
 					   uint8_t he_present,
 					   uint8_t vht_present,
 					   uint8_t ht_present);
-
-/**
- * wlan_mlme_vendor_set_disable_dfs_master_capability() - Set dfs master
- * capability disabled
- * @psoc: pointer to psoc object
- * @disable:  disable or not
- *
- * Return: QDF Status
- */
-QDF_STATUS
-wlan_mlme_vendor_set_disable_dfs_master_capability(
-					struct wlan_objmgr_psoc *psoc,
-					bool disable);
 
 #ifdef WLAN_FEATURE_11BE
 /**
@@ -5010,17 +4997,6 @@ wlan_mlme_get_ch_width_from_phymode(enum wlan_phymode phy_mode);
 enum phy_ch_width
 wlan_mlme_get_peer_ch_width(struct wlan_objmgr_psoc *psoc, uint8_t *mac);
 
-/**
- * wlan_mlme_get_max_peer_ch_width() - get max ch_width of the given
- * peer
- * @psoc: psoc context
- * @mac: peer mac
- *
- * Return: enum phy_ch_width
- */
-enum phy_ch_width
-wlan_mlme_get_max_peer_ch_width(struct wlan_objmgr_psoc *psoc, uint8_t *mac);
-
 #if defined(WLAN_FEATURE_SR)
 /**
  * wlan_mlme_get_sr_enable_modes() - get mode for which SR is enabled
@@ -5101,18 +5077,16 @@ enum phy_ch_width wlan_mlme_get_max_bw(void);
 
 /**
  * wlan_mlme_get_sta_ch_width() - Get current operating
- * channel width and phymode for STA / P2P-CLI mode
+ * channel width for STA / P2P-CLI mode
  *
  * @vdev: STA / P2P-CLI vdev
  * @ch_width: Returned channel width
- * @phy_mode: Returned phy mode
  *
  * Return: QDF_STATUS_SUCCESS for success otherwise QDF_STATUS_E_INVAL
  *
  */
 QDF_STATUS wlan_mlme_get_sta_ch_width(struct wlan_objmgr_vdev *vdev,
-				      enum phy_ch_width *ch_width,
-				      enum wlan_phymode *phy_mode);
+				      enum phy_ch_width *ch_width);
 
 /**
  * wlan_mlme_set_ul_mu_config() - set ul mu config
@@ -5331,86 +5305,4 @@ wlan_mlme_set_p2p_device_mac_addr(struct wlan_objmgr_vdev *vdev,
 QDF_STATUS
 wlan_mlme_get_p2p_device_mac_addr(struct wlan_objmgr_vdev *vdev,
 				  struct qdf_mac_addr *mac_addr);
-
-/**
- * wlan_mlme_clear_peer_private_object_data(): This API is wrapper for
- * function "mlme_clear_peer_private_object_data"
- * @peer: peer object
- *
- * Return: QDF_STATUS
- */
-QDF_STATUS
-wlan_mlme_clear_peer_private_object_data(struct wlan_objmgr_peer *peer);
-
-/*
- * wlan_mlme_get_beacon_interval() - Get beacon interval of connected bss
- * @vdev: pointer to vdev
- *
- * Return: beacon interval
- */
-uint32_t wlan_mlme_get_beacon_interval(struct wlan_objmgr_vdev *vdev);
-
-/** wlan_mlme_get_p2p_go_cancel_one_shot_noa() - Get P2P GO one-shot NoA
- * cancellation configuration
- * @psoc: pointer to psoc object
- *
- * This function retrieves the configuration setting that controls whether
- * P2P Group Owner (GO) should cancel one-shot Notice of Absence (NoA)
- * when there is active traffic. When enabled, the GO can dynamically
- * cancel a scheduled one-shot NoA period to maintain better throughput
- * and reduce latency during active data transmission.
- *
- * Return: true if one-shot NoA cancellation is enabled, false otherwise
- */
-bool wlan_mlme_get_p2p_go_cancel_one_shot_noa(struct wlan_objmgr_psoc *psoc);
-
-/**
- * wlan_mlme_set_p2p_go_cancel_one_shot_noa() - Set P2P GO one-shot NoA
- * cancellation configuration
- * @psoc: pointer to psoc object
- * @value: true to enable one-shot NoA cancellation, false to disable
- *
- * This function configures whether P2P Group Owner (GO) should cancel
- * one-shot Notice of Absence (NoA) when there is active traffic. When
- * enabled, the GO can dynamically cancel a scheduled one-shot NoA period
- * to maintain better throughput and reduce latency during active data
- * transmission.
- *
- * Return: QDF_STATUS_SUCCESS on success, error code otherwise
- */
-QDF_STATUS wlan_mlme_set_p2p_go_cancel_one_shot_noa(struct wlan_objmgr_psoc *psoc,
-						    bool value);
-
-/**
- * wlan_mlme_get_p2p_gc_keep_awake_during_noa() - Get P2P GC keep-awake
- * during NoA configuration
- * @psoc: pointer to psoc object
- *
- * This function retrieves the configuration setting that controls whether
- * P2P Group Client (GC) should remain awake during Notice of Absence (NoA)
- * periods announced by the Group Owner. When enabled, the GC will not enter
- * power save mode during NoA periods, allowing it to receive frames from
- * other devices and maintain better connectivity, though at the cost of
- * increased power consumption.
- *
- * Return: true if GC keep-awake during NoA is enabled, false otherwise
- */
-bool wlan_mlme_get_p2p_gc_keep_awake_during_noa(struct wlan_objmgr_psoc *psoc);
-
-/**
- * wlan_mlme_set_p2p_gc_keep_awake_during_noa() - Set P2P GC keep-awake
- * during NoA configuration
- * @psoc: pointer to psoc object
- * @value: true to keep GC awake during NoA, false to allow power save
- *
- * This function configures whether P2P Group Client (GC) should remain
- * awake during Notice of Absence (NoA) periods announced by the Group
- * Owner. When enabled, the GC will not enter power save mode during NoA
- * periods, allowing it to receive frames from other devices and maintain
- * better connectivity, though at the cost of increased power consumption.
- *
- * Return: QDF_STATUS_SUCCESS on success, error code otherwise
- */
-QDF_STATUS wlan_mlme_set_p2p_gc_keep_awake_during_noa(struct wlan_objmgr_psoc *psoc,
-						      bool value);
 #endif /* _WLAN_MLME_API_H_ */

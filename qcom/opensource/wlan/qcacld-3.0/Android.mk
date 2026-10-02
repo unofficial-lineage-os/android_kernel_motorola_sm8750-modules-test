@@ -45,11 +45,6 @@ LOCAL_MODULE_DDK_BUILD := true
 LOCAL_MODULE_DDK_ALLOW_UNSAFE_HEADERS := true
 endif
 
-ifeq ($(TARGET_BOARD_PLATFORM), neo61)
-LOCAL_MODULE_DDK_BUILD := true
-LOCAL_MODULE_DDK_ALLOW_UNSAFE_HEADERS := true
-endif
-
 LOCAL_PATH := $(call my-dir)
 $(call wlog,LOCAL_PATH=$(LOCAL_PATH))
 BOARD_OPENSOURCE_DIR ?= vendor/qcom/opensource
@@ -183,6 +178,10 @@ LOCAL_ADDITIONAL_DEPENDENCIES += $(TARGET_FW_PATH)/WCNSS_qcom_cfg.ini
 $(call wlog,"generate soft link because GENERIC_ODM_IMAGE not true")
 endif
 endif
+# Begin,IKSWU-42693,hurui1,Add moto PRC special ini overlay
+$(call symlink-file,,$(TARGET_CFG_PATH)/WCNSS_prc_cfg.ini,$(TARGET_FW_PATH)/WCNSS_prc_cfg.ini)
+LOCAL_ADDITIONAL_DEPENDENCIES += $(TARGET_FW_PATH)/WCNSS_prc_cfg.ini
+# End,IKSWU-42693,hurui1
 
 # Set dependencies so that CNSS family drivers can be compiled ahead.
 ifneq ($(WLAN_PLATFORM_KBUILD_OPTIONS),)
@@ -280,9 +279,7 @@ KBUILD_OPTIONS += $(WLAN_SELECT)
 
 ifneq ($(TARGET_BOARD_PLATFORM), hala)
 ifneq ($(TARGET_BOARD_PLATFORM), anorak61)
-ifneq ($(TARGET_BOARD_PLATFORM), neo61)
 KBUILD_REQUIRED_KOS := ipam.ko
-endif
 endif
 endif
 

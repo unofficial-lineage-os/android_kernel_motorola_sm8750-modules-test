@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2018-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+ * Copyright (c) 2021-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -49,7 +49,9 @@
 #include "wlan_mlo_mgr_sta.h"
 #include "wlan_cp_stats_mc_tgt_api.h"
 #include "wlan_objmgr_pdev_obj.h"
+#ifdef WLAN_FEATURE_LL_LT_SAP
 #include "wlan_ll_sap_api.h"
+#endif
 #include "wlan_nan_api_i.h"
 #include "wlan_tdls_api.h"
 #include <wlan_p2p_api.h>
@@ -1407,6 +1409,20 @@ QDF_STATUS mlme_set_mbssid_info(struct wlan_objmgr_vdev *vdev,
 	return QDF_STATUS_SUCCESS;
 }
 
+void mlme_get_mbssid_info(struct wlan_objmgr_vdev *vdev,
+			  struct vdev_mlme_mbss_11ax *mbss_11ax)
+{
+	struct vdev_mlme_obj *vdev_mlme;
+
+	vdev_mlme = wlan_vdev_mlme_get_cmpt_obj(vdev);
+	if (!vdev_mlme) {
+		mlme_legacy_err("vdev component object is NULL");
+		return;
+	}
+
+	mbss_11ax = &vdev_mlme->mgmt.mbss_11ax;
+}
+
 QDF_STATUS mlme_set_tx_power(struct wlan_objmgr_vdev *vdev,
 			     int8_t tx_power)
 {
@@ -1616,11 +1632,6 @@ static void mlme_ext_handler_destroy(struct vdev_mlme_obj *vdev_mlme)
 		&vdev_mlme->ext_vdev_ptr->bss_color_change_wakelock);
 	qdf_runtime_lock_deinit(
 		&vdev_mlme->ext_vdev_ptr->disconnect_runtime_lock);
-	qdf_runtime_lock_deinit(
-			&vdev_mlme->ext_vdev_ptr->peer_set_key_rt_wakelock);
-	qdf_wake_lock_destroy(
-		&vdev_mlme->ext_vdev_ptr->peer_set_key_wakelock);
-	qdf_atomic_set(&vdev_mlme->ext_vdev_ptr->set_key_wakelock_counter, 0);
 	mlme_free_peer_disconnect_ies(vdev_mlme->vdev);
 	mlme_free_sae_auth_retry(vdev_mlme->vdev);
 	mlme_deinit_wait_for_key_timer(&vdev_mlme->ext_vdev_ptr->wait_key_timer);
@@ -1738,12 +1749,6 @@ QDF_STATUS vdevmgr_mlme_ext_hdl_create(struct vdev_mlme_obj *vdev_mlme)
 		mlme_ext_handler_destroy(vdev_mlme);
 		return status;
 	}
-
-	qdf_atomic_init(&vdev_mlme->ext_vdev_ptr->set_key_wakelock_counter);
-	qdf_wake_lock_create(&vdev_mlme->ext_vdev_ptr->peer_set_key_wakelock,
-			     "peer_set_key");
-	qdf_runtime_lock_init(
-			&vdev_mlme->ext_vdev_ptr->peer_set_key_rt_wakelock);
 
 	status = vdev_mgr_create_send(vdev_mlme);
 	if (QDF_IS_STATUS_ERROR(status)) {

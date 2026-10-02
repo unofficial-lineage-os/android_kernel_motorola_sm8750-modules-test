@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2012-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2025 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -402,20 +402,6 @@ struct dfs_p2p_group_info {
 };
 
 /**
- * struct punc_chan_info - Channel information
- * @chan_width: channel width
- * @center_freq_seg0: Center frequency segment 0
- * @center_freq_seg1: Center frequency segment 1
- * @present: boolean flag
- */
-struct punc_chan_info {
-	uint8_t chan_width;
-	uint8_t center_freq_seg0;
-	uint8_t center_freq_seg1;
-	bool present;
-};
-
-/**
  * struct pe_session - per-vdev PE context
  * @available: true if the entry is available, false if it is in use
  * @cm_id:
@@ -673,7 +659,6 @@ struct punc_chan_info {
  * @he_op:
  * @he_sta_obsspd:
  * @he_6ghz_band:
- * @he_punc_chan_info: HE punctured channel info
  * @he_bss_color_change:
  * @bss_color_info:
  * @bss_color_changing:
@@ -727,7 +712,6 @@ struct punc_chan_info {
  * on 2.4 GHz
  * @join_probe_cnt: join probe request count
  * @cal_tpc_post_csa: Recalculate tx power power csa
- * @rsno_gen_used: rsno gen used for connection
  * @wnm_action_dialog_token: Dialog token for WNM action frames.
  * @dfs_p2p_info: DFS P2P group operation info.
  */
@@ -1005,7 +989,6 @@ struct pe_session {
 	uint8_t bss_color_changing;
 #endif
 #endif
-	struct punc_chan_info he_punc_chan_info;
 	struct deauth_retry_params deauth_retry;
 	bool enable_bcast_probe_rsp;
 	uint8_t ht_client_cnt;
@@ -1063,7 +1046,7 @@ struct pe_session {
 	bool is_unexpected_peer_error;
 	uint8_t join_probe_cnt;
 	bool cal_tpc_post_csa;
-	uint8_t rsno_gen_used;
+
 	uint8_t wnm_action_dialog_token;
 	struct dfs_p2p_group_info dfs_p2p_info;
 };

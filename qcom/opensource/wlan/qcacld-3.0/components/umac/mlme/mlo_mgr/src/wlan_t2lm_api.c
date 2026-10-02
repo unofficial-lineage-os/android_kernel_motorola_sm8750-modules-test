@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2022-2025 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -184,8 +184,8 @@ QDF_STATUS ttlm_valid_n_copy_for_rx_req(struct wlan_objmgr_vdev *vdev,
 	 * negotiation action request link id
 	 */
 	valid_map = t2lm_is_valid_t2lm_link_map(vdev, t2lm_req, &dir);
-	if (!valid_map || dir >= WLAN_T2LM_MAX_DIRECTION) {
-		t2lm_err("reject t2lm conf, dir %d", dir);
+	if (!valid_map) {
+		t2lm_err("reject t2lm conf");
 		return QDF_STATUS_E_FAILURE;
 	}
 
@@ -318,7 +318,7 @@ t2lm_populate_peer_level_tid_to_link_mapping(struct wlan_objmgr_vdev *vdev,
 					     struct wlan_mlo_peer_context *ml_peer,
 					     struct wlan_t2lm_onging_negotiation_info *t2lm_rsp)
 {
-	QDF_STATUS status = QDF_STATUS_SUCCESS;
+	QDF_STATUS status;
 	struct wlan_t2lm_onging_negotiation_info *t2lm_req;
 	uint8_t dir;
 	struct wlan_t2lm_info *t2lm_info = NULL;
@@ -560,7 +560,7 @@ QDF_STATUS t2lm_deliver_event(struct wlan_objmgr_vdev *vdev,
 	return status;
 }
 
-uint16_t
+static uint16_t
 t2lm_get_tids_mapped_link_id(uint16_t link_map_tid)
 {
 	uint16_t all_tids_mapped_link_id = 0;
@@ -576,7 +576,7 @@ t2lm_get_tids_mapped_link_id(uint16_t link_map_tid)
 	return all_tids_mapped_link_id;
 }
 
-QDF_STATUS
+static QDF_STATUS
 t2lm_find_tid_mapped_link_id(struct wlan_t2lm_info *t2lm_info,
 			     uint16_t *tid_mapped_link_id)
 {

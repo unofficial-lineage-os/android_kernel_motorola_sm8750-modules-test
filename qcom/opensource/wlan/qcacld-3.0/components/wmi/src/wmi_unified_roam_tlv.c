@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2013-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2025 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -2689,14 +2689,6 @@ abort_roam:
 	return status;
 }
 
-/*
- * RSSI=0 indicates best RSSI AP and userspace might get confused.
- * So mark it as -80 to indicate as bad RSSI so that userspace
- * doesn't prefer this link over associated link for roaming. There is
- * no concern even if current frame is from assoc link.
- */
-#define UNKNOWN_RSSI_OF_LINK (-80)
-
 /**
  * extract_roam_sync_frame_event_tlv() - Extract the roam sync frame event
  * from the wmi_roam_synch_event_id
@@ -2762,17 +2754,12 @@ extract_roam_sync_frame_event_tlv(wmi_unified_t wmi_handle, void *event,
 
 	frame_ind = frame_ptr;
 	frame_ind->vdev_id = frame_evt->vdev_id;
-	frame_ind->rssi = frame_evt->bcn_probe_resp_rssi;
-	if (!frame_ind->rssi)
-		frame_ind->rssi = UNKNOWN_RSSI_OF_LINK;
 
-	wmi_debug("synch frame payload: vdev %d LEN %s bcn:%d, req:%d, rsp:%d RSSI: %d",
-		  frame_evt->vdev_id,
+	wmi_debug("synch frame payload: LEN %s bcn:%d, req:%d, rsp:%d",
 		  frame_evt->reassoc_rsp_len ? "Assoc" : "Link",
 		  frame_evt->bcn_probe_rsp_len,
 		  frame_evt->reassoc_req_len,
-		  frame_evt->reassoc_rsp_len,
-		  frame_evt->bcn_probe_resp_rssi);
+		  frame_evt->reassoc_rsp_len);
 
 	if (frame_evt->bcn_probe_rsp_len &&
 	    frame_evt->reassoc_rsp_len) {
@@ -2962,15 +2949,6 @@ extract_btm_denylist_event(wmi_unified_t wmi_handle,
 		roam_denylist->reject_reason =
 				wmi_get_reject_reason(src_list->reason);
 		roam_denylist->source = src_list->source;
-		if (src_list->ml_failed_link_combo_count >
-		    WMI_MAX_FAILED_LINK_COMBO_COUNT) {
-			wmi_err("link_count size %d exceeds max combo_count size %d",
-				src_list->ml_failed_link_combo_count,
-				WMI_MAX_FAILED_LINK_COMBO_COUNT);
-			qdf_mem_free(dst_list);
-
-			return QDF_STATUS_E_INVAL;
-		}
 		roam_update_mlo_bl_info(roam_denylist, src_list);
 		roam_denylist++;
 		src_list++;
@@ -3540,13 +3518,11 @@ extract_roam_candidate_frame_tlv(wmi_unified_t wmi_handle, uint8_t *event,
 	}
 
 	data->vdev_id = frame_params->vdev_id;
-	data->rssi = frame_params->rssi;
 	data->frame_length = frame_params->frame_length;
 	data->frame = (uint8_t *)param_buf->frame;
 	data->roam_offload_candidate_frm = true;
-	wmi_debug("Frame: vdev %d, rssi: %d, frame_length: %d", data->vdev_id,
-		  data->rssi, data->frame_length);
-	mgmt_txrx_frame_hex_dump(data->frame, data->frame_length, false);
+	QDF_TRACE_HEX_DUMP(QDF_MODULE_ID_WMI, QDF_TRACE_LEVEL_DEBUG,
+			   data->frame, data->frame_length);
 
 	return QDF_STATUS_SUCCESS;
 }
@@ -3706,12 +3682,6 @@ extract_roam_vendor_control_param_event_tlv(wmi_unified_t wmi_handle,
 
 	if (len < (sizeof(*fixed_param) + (num_entries * sizeof(*src_list)))) {
 		wmi_err("Invalid length: %d", len);
-		return QDF_STATUS_E_FAILURE;
-	}
-
-	if (num_entries > MAX_VENDOR_CONTROL_PARAMS) {
-		wmi_err("Too many vendor control params: %u (max allowed: %u)",
-			num_entries, MAX_VENDOR_CONTROL_PARAMS);
 		return QDF_STATUS_E_FAILURE;
 	}
 
@@ -4213,7 +4183,6 @@ free_entries:
 	qdf_mem_zero(*entries,
 		     WLAN_MAX_ML_BSS_LINKS * sizeof(**entries));
 	qdf_mem_free(*entries);
-	*entries = NULL;
 
 free_keys:
 	for (k = 0; k < WMI_NUM_KEYS_ALLOCATED; k++) {
@@ -4303,12 +4272,9 @@ extract_roam_ml_info_tlv(wmi_unified_t wmi_handle, void *evt_buf,
 		dst->ml_info[dst->num_links].link_band =
 				wmi_convert_mlo_to_reg_band(wmi_band);
 
-		/* is Link Accepted or rejected
-		 * 0 - Accepted
-		 * 1 - Rejected
-		 */
+		/* is Link Accepted or rejected */
 		dst->ml_info[dst->num_links].link_accepted =
-			WMI_MLO_LINK_INFO_GET_STATUS(src_link_info->link_info) ? false : true;
+			WMI_MLO_LINK_INFO_GET_STATUS(src_link_info->link_info) ? true : false;
 
 		/* Self Link mac address */
 		WMI_MAC_ADDR_TO_CHAR_ARRAY(&src_link_info->link_addr,
@@ -5514,10 +5480,8 @@ send_roam_scan_offload_ap_profile_cmd_tlv(wmi_unified_t wmi_handle,
 	update_mlo_prefer_percentage(wmi_handle->soc->wmi_psoc,
 				     &mlo_prefer_percentage);
 	score_param->mlo_etp_weightage_pcnt = mlo_prefer_percentage;
-	score_param->mcc_score_factor_pcnt =
-			ap_profile->param.sta_sap_mcc_weightage;
 	send_update_mlo_roam_params(score_param, ap_profile);
-	wmi_debug("Score params weightage: disable_bitmap %x rssi %d ht %d vht %d he %d BW %d band %d NSS %d ESP %d BF %d PCL %d OCE WAN %d APTX %d roam score algo %d subnet id %d sae-pk %d security %d mlo_etp_weight_pct %d sta_sap_mcc_pcnt %d",
+	wmi_debug("Score params weightage: disable_bitmap %x rssi %d ht %d vht %d he %d BW %d band %d NSS %d ESP %d BF %d PCL %d OCE WAN %d APTX %d roam score algo %d subnet id %d sae-pk %d security %d mlo_etp_weight_pct %d",
 		  score_param->disable_bitmap, score_param->rssi_weightage_pcnt,
 		  score_param->ht_weightage_pcnt,
 		  score_param->vht_weightage_pcnt,
@@ -5534,8 +5498,7 @@ send_roam_scan_offload_ap_profile_cmd_tlv(wmi_unified_t wmi_handle,
 		  score_param->oce_ap_subnet_id_weightage_pcnt,
 		  score_param->sae_pk_ap_weightage_pcnt,
 		  score_param->security_weightage_pcnt,
-		  score_param->mlo_etp_weightage_pcnt,
-		  score_param->mcc_score_factor_pcnt);
+		  score_param->mlo_etp_weightage_pcnt);
 
 	score_param->bw_scoring.score_pcnt = ap_profile->param.bw_index_score;
 	score_param->band_scoring.score_pcnt =

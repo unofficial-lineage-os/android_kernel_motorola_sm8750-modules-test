@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2012-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+ * Copyright (c) 2021-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -168,8 +168,7 @@ static void lim_delete_sta_util(struct mac_context *mac_ctx, tpDeleteStaContext 
 
 #ifdef FEATURE_WLAN_TDLS
 		/* Delete all TDLS peers connected before leaving BSS */
-		lim_delete_tdls_peers(mac_ctx, session_entry,
-				      TDLS_PEER_DEL_REASON_NONE);
+		lim_delete_tdls_peers(mac_ctx, session_entry);
 #endif
 		if (LIM_IS_STA_ROLE(session_entry))
 			lim_post_sme_message(mac_ctx, LIM_MLM_DEAUTH_IND,
@@ -340,7 +339,11 @@ lim_trigger_sta_deletion(struct mac_context *mac_ctx, tpDphHashNode sta_ds,
 	mlm_disassoc_ind.sessionId = session_entry->peSessionId;
 	lim_post_sme_message(mac_ctx, LIM_MLM_DISASSOC_IND,
 			(uint32_t *) &mlm_disassoc_ind);
-
+	if (mac_ctx->mlme_cfg->gen.fatal_event_trigger)
+		cds_flush_logs(WLAN_LOG_TYPE_FATAL,
+				WLAN_LOG_INDICATOR_HOST_DRIVER,
+				WLAN_LOG_REASON_HB_FAILURE,
+				false, false);
 	/* Issue Disassoc Indication to SME */
 	lim_send_sme_disassoc_ind(mac_ctx, sta_ds, session_entry);
 } /*** end lim_trigger_st_adeletion() ***/
@@ -407,7 +410,7 @@ lim_tear_down_link_with_ap(struct mac_context *mac, uint8_t sessionId,
 	pe_session->pmmOffloadInfo.bcnmiss = false;
 
 	/* Delete all TDLS peers connected before leaving BSS */
-	lim_delete_tdls_peers(mac, pe_session, TDLS_PEER_DEL_REASON_NONE);
+	lim_delete_tdls_peers(mac, pe_session);
 
 	/* Announce loss of link to Roaming algorithm */
 	/* and cleanup by sending SME_DISASSOC_REQ to SME */
@@ -569,6 +572,8 @@ void lim_rx_invalid_peer_process(struct mac_context *mac_ctx,
 			(struct ol_rx_inv_peer_params *)lim_msg->bodyptr;
 	struct pe_session *session_entry;
 	uint16_t reason_code = REASON_CLASS3_FRAME_FROM_NON_ASSOC_STA;
+	uint16_t aid;
+	tpDphHashNode sta_ds;
 
 	if (!msg) {
 		pe_err("Invalid body pointer in message");
@@ -583,29 +588,32 @@ void lim_rx_invalid_peer_process(struct mac_context *mac_ctx,
 	}
 
 	/* only if SAP mode */
-	if (session_entry->bssType != eSIR_INFRA_AP_MODE) {
-		pe_debug("unsupported BSS Type %d", session_entry->bssType);
-		goto end;
+	if (session_entry->bssType == eSIR_INFRA_AP_MODE) {
+		sta_ds = dph_lookup_hash_entry(mac_ctx, msg->ta, &aid,
+					       &session_entry->dph.dphHashTable);
+		if (sta_ds && sta_ds->is_key_installed) {
+			/*
+			 * Skip deauth for an associated STA.
+			 *
+			 * The deauth sent for invalid peer indication will
+			 * not cleanup the SM if this is an associated STA.
+			 * Therefore, the deauth for associated STA creates
+			 * stale entries even after STA gets disconnected.
+			 */
+			pe_err_rl("Received Invalid rx peer indication for an associated STA "
+			       QDF_MAC_ADDR_FMT, QDF_MAC_ADDR_REF(msg->ta));
+			qdf_mem_free(msg);
+			lim_msg->bodyptr = NULL;
+			return;
+		}
+		pe_debug("send deauth frame to non-assoc STA");
+		lim_send_deauth_mgmt_frame(mac_ctx,
+					   reason_code,
+					   msg->ta,
+					   session_entry,
+					   false);
 	}
 
-	if (wlan_peer_is_key_installed(mac_ctx->psoc, msg->ta)) {
-		/*
-		 * Skip deauth for an associated STA.
-		 * The deauth sent for invalid peer indication will
-		 * not cleanup the SM if this is an associated STA.
-		 * Therefore, the deauth for associated STA creates
-		 * stale entries even after STA gets disconnected.
-		 */
-		pe_err_rl("Received Invalid rx peer indication for an associated STA "
-			  QDF_MAC_ADDR_FMT, QDF_MAC_ADDR_REF(msg->ta));
-		goto end;
-	}
-
-	pe_debug("send deauth frame to non-assoc STA");
-	lim_send_deauth_mgmt_frame(mac_ctx, reason_code, msg->ta, session_entry,
-				   false);
-
-end:
 	qdf_mem_free(msg);
 	lim_msg->bodyptr = NULL;
 }

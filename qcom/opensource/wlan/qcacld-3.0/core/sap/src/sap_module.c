@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2012-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+ * Copyright (c) 2021-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -58,7 +58,6 @@
 #include "wlan_pre_cac_api.h"
 #include "target_if.h"
 #include "wlan_hdd_regulatory.h"
-#include "wlan_ll_sap_api.h"
 
 #define SAP_DEBUG
 static struct sap_context *gp_sap_ctx[SAP_MAX_NUM_SESSION];
@@ -291,8 +290,6 @@ static void wlansap_owe_cleanup(struct sap_context *sap_ctx)
 			assoc_ind->owe_ie_len = 0;
 			assoc_ind->owe_status = STATUS_UNSPECIFIED_FAILURE;
 			status = sme_update_owe_info(mac, assoc_ind);
-			if (assoc_ind->assocReqPtr)
-				qdf_mem_free(assoc_ind->assocReqPtr);
 			qdf_mem_free(assoc_ind);
 		} else {
 			sap_err("Failed to remove assoc ind");
@@ -341,8 +338,6 @@ static void wlansap_ft_cleanup(struct sap_context *sap_ctx)
 			assoc_ind->ft_ie = NULL;
 			assoc_ind->ft_ie_len = 0;
 			assoc_ind->ft_status = STATUS_UNSPECIFIED_FAILURE;
-			if (assoc_ind->assocReqPtr)
-				qdf_mem_free(assoc_ind->assocReqPtr);
 			qdf_mem_free(assoc_ind);
 		} else {
 			sap_err("Failed to remove assoc ind");
@@ -587,7 +582,7 @@ wlansap_set_scan_acs_channel_params(struct sap_config *config,
 	}
 
 	/* Channel selection is auto or configured */
-	wlansap_set_acs_ch_freq(mac, psap_ctx, config->chan_freq);
+	wlansap_set_acs_ch_freq(psap_ctx, config->chan_freq);
 	psap_ctx->dfs_mode = config->acs_dfs_mode;
 #ifdef FEATURE_WLAN_MCC_TO_SCC_SWITCH
 	psap_ctx->cc_switch_mode = config->cc_switch_mode;
@@ -675,7 +670,6 @@ enum phy_ch_width wlan_sap_get_concurrent_bw(struct wlan_objmgr_pdev *pdev,
 	uint8_t sta_sap_scc_on_dfs_chnl;
 	uint8_t sta_count = 0;
 	bool is_hw_dbs_capable = false;
-	qdf_freq_t ll_sap_freq = 0;
 
 	if (WLAN_REG_IS_24GHZ_CH_FREQ(con_ch_freq))
 		return channel_width;
@@ -694,8 +688,6 @@ enum phy_ch_width wlan_sap_get_concurrent_bw(struct wlan_objmgr_pdev *pdev,
 							    &sta_vdev_id,
 							    con_ch_freq,
 							    &sta_ch_width);
-	ll_sap_freq = policy_mgr_get_ll_lt_sap_freq(psoc);
-
 	if (scc_sta_present) {
 		sta_chan_width = policy_mgr_get_ch_width(sta_ch_width);
 		sap_debug("sta_chan_width:%d, channel_width:%d",
@@ -706,11 +698,6 @@ enum phy_ch_width wlan_sap_get_concurrent_bw(struct wlan_objmgr_pdev *pdev,
 		else if (WLAN_REG_IS_5GHZ_CH_FREQ(con_ch_freq) &&
 			 wlan_reg_is_freq_indoor(pdev, con_ch_freq))
 			is_con_sta_indoor = true;
-	} else if (ll_sap_freq && WLAN_REG_IS_5GHZ_CH_FREQ(con_ch_freq) &&
-		   channel_width == CH_WIDTH_160MHZ) {
-		sap_debug("LL SAP present on freq %d, limit SAP/GO channel to 80 Mhz to avoid DFS MCC",
-			  ll_sap_freq);
-		return CH_WIDTH_80MHZ;
 	}
 
 	policy_mgr_get_sta_sap_scc_on_dfs_chnl(psoc, &sta_sap_scc_on_dfs_chnl);
@@ -873,7 +860,7 @@ QDF_STATUS wlansap_start_bss(struct sap_context *sap_ctx,
 	sap_ctx->fsm_state = SAP_INIT;
 	sap_debug("sap_fsm: vdev %d:  => SAP_INIT", sap_ctx->vdev_id);
 
-	qdf_status = wlan_set_vdev_crypto_params_from_ie(
+	qdf_status = wlan_set_vdev_crypto_prarams_from_ie(
 			sap_ctx->vdev,
 			config->RSNWPAReqIE,
 			config->RSNWPAReqIELength);
@@ -1485,8 +1472,7 @@ wlansap_get_csa_chanwidth_from_phymode(struct sap_context *sap_context,
 							sap_context->vdev);
 	}
 	ch_params.ch_width = ch_width;
-	if (tgt_ch_params)
-		ch_params.mhz_freq_seg1 = tgt_ch_params->mhz_freq_seg1;
+	ch_params.mhz_freq_seg1 = tgt_ch_params->mhz_freq_seg1;
 	if (sap_phymode_is_eht(sap_context->phyMode))
 		wlan_reg_set_create_punc_bitmap(&ch_params, true);
 	wlan_reg_set_channel_params_for_pwrmode(mac->pdev, chan_freq,
@@ -2784,9 +2770,9 @@ void wlansap_extend_to_acs_range(mac_handle_t mac_handle,
 	}
 
 	if (*end_ch_freq <= wlan_reg_ch_to_freq(CHAN_ENUM_2484)) {
-		*bandEndChannel = CHAN_ENUM_2484;
+		*bandEndChannel = CHAN_ENUM_2472;
 		tmp_end_ch_freq = (*end_ch_freq + ACS_2G_EXTEND) <=
-					wlan_reg_ch_to_freq(CHAN_ENUM_2484) ?
+					wlan_reg_ch_to_freq(CHAN_ENUM_2472) ?
 					(*end_ch_freq + ACS_2G_EXTEND) :
 					wlan_reg_ch_to_freq(CHAN_ENUM_2484);
 	} else if (*end_ch_freq <= wlan_reg_ch_to_freq(CHAN_ENUM_5885)) {
@@ -3296,8 +3282,6 @@ QDF_STATUS wlansap_update_owe_info(struct sap_context *sap_ctx,
 		assoc_ind->owe_ie_len = ie_len;
 		assoc_ind->owe_status = owe_status;
 		status = sme_update_owe_info(mac, assoc_ind);
-		if (assoc_ind->assocReqPtr)
-			qdf_mem_free(assoc_ind->assocReqPtr);
 		qdf_mem_free(assoc_ind);
 	} else {
 		/*
@@ -3373,8 +3357,6 @@ QDF_STATUS wlansap_update_ft_info(struct sap_context *sap_ctx,
 		assoc_ind->ft_ie_len = ie_len;
 		assoc_ind->ft_status = ft_status;
 		status = sme_update_ft_info(mac, assoc_ind);
-		if (assoc_ind->assocReqPtr)
-			qdf_mem_free(assoc_ind->assocReqPtr);
 		qdf_mem_free(assoc_ind);
 	}
 	return status;
@@ -4418,23 +4400,7 @@ qdf_freq_t wlansap_dcs_get_freq(struct sap_context *sap_context)
 	return sap_context->dcs_ch_freq;
 }
 
-static void
-wlansap_update_current_freq_cu(struct mac_context *mac_ctx,
-			       uint8_t vdev_id,
-			       qdf_freq_t ch_freq)
-{
-	uint32_t cu;
-	QDF_STATUS status;
-
-	cu = wlan_ll_sap_get_cu_for_freq(mac_ctx->pdev, ch_freq);
-	status = wlan_ll_sap_set_cur_freq_unused_cu(mac_ctx->psoc, vdev_id, cu);
-	if (QDF_IS_STATUS_ERROR(status))
-		sap_debug("failed to update freq %d cu", ch_freq);
-
-}
-
-void wlansap_set_acs_ch_freq(struct mac_context *mac_ctx,
-			     struct sap_context *sap_context,
+void wlansap_set_acs_ch_freq(struct sap_context *sap_context,
 			     qdf_freq_t ch_freq)
 {
 	if (!sap_context) {
@@ -4449,16 +4415,9 @@ void wlansap_set_acs_ch_freq(struct mac_context *mac_ctx,
 		sap_context->chan_freq = ch_freq;
 		sap_debug("Selecting ACS freq %d", sap_context->chan_freq);
 	}
-
-	if (ch_freq && policy_mgr_is_vdev_ll_lt_sap(mac_ctx->psoc,
-	    sap_context->vdev_id)) {
-		wlansap_update_current_freq_cu(mac_ctx, sap_context->vdev_id,
-					       ch_freq);
-	}
 }
 #else
-void wlansap_set_acs_ch_freq(struct mac_context *mac_ctx,
-			     struct sap_context *sap_context,
+void wlansap_set_acs_ch_freq(struct sap_context *sap_context,
 			     qdf_freq_t ch_freq)
 {
 	if (!sap_context) {
@@ -4530,7 +4489,7 @@ void wlansap_update_ll_lt_sap_acs_result(struct sap_context *sap_ctx,
 		return;
 	}
 
-	wlansap_set_acs_ch_freq(mac, sap_ctx, last_acs_freq);
+	wlansap_set_acs_ch_freq(sap_ctx, last_acs_freq);
 	sap_ctx->acs_cfg->pri_ch_freq = last_acs_freq;
 	sap_ctx->acs_cfg->ht_sec_ch_freq = 0;
 }

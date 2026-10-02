@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2024-2025 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2024 Qualcomm Innovation Center, Inc. All rights reserved.
  * SPDX-License-Identifier: ISC
  */
 
@@ -194,7 +194,7 @@ wlan_dp_resource_mgr_timer_handler(void *arg)
 	req_rx_buff_descs = rsrc_ctx->cur_rsrc_map[rsrc_level].num_rx_buffers;
 
 	if (cur_req_rx_buff_descs > req_rx_buff_descs) {
-		dp_info("Downscale required cur_rx_buf:%llu to req_rx_buf:%llu",
+		dp_info("Downscale required cur_rx_buf:%u to req_rx_buf:%u",
 			cur_req_rx_buff_descs, req_rx_buff_descs);
 		wlan_dp_resource_mgr_post_downscale_resource_req(rsrc_ctx,
 								 false);
@@ -232,7 +232,7 @@ void wlan_dp_resource_mgr_downscale_resources(void)
 			  in_use_rx_buff_descs, req_rx_buff_descs);
 
 	if (cur_req_rx_buff_descs > req_rx_buff_descs) {
-		dp_info("Downscaling cur_rx_buf:%llu to req_rx_buf:%llu",
+		dp_info("Downscaling cur_rx_buf:%u to req_rx_buf:%u",
 			cur_req_rx_buff_descs, req_rx_buff_descs);
 		status = cdp_set_req_buff_descs(cdp_soc, req_rx_buff_descs, 0);
 		if (QDF_IS_STATUS_ERROR(status))
@@ -281,7 +281,7 @@ void wlan_dp_resource_mgr_upscale_resources(
 			additional_rx_buffers = (req_rx_buff_descs -
 				in_use_rx_buff_descs);
 
-		dp_info("Upscaling cur_rx_buf:%llu req_rx_buf:%llu additional:%llu",
+		dp_info("Upscaling cur_rx_buf:%u req_rx_buf:%u additional:%u",
 			cur_req_rx_buff_descs, req_rx_buff_descs,
 			additional_rx_buffers);
 	}
@@ -296,7 +296,7 @@ void wlan_dp_resource_mgr_upscale_resources(
 		num_alloc_buff = cdp_buffers_replenish_on_demand(cdp_soc,
 							 batch_count, 0);
 		if (!num_alloc_buff) {
-			dp_err("failed to allocate rx buffers, count:%llu",
+			dp_err("failed to allocate rx buffers, count:%u",
 			       batch_count);
 			break;
 		}
@@ -311,7 +311,7 @@ void wlan_dp_resource_mgr_upscale_resources(
 	}
 
 	if (additional_rx_buffers)
-		dp_err("Upscale request deficit:%llu", additional_rx_buffers);
+		dp_err("Upscale request deficit:%u", additional_rx_buffers);
 }
 
 static uint32_t
@@ -566,7 +566,7 @@ wlan_dp_resource_mgr_select_resource_level(
 	else
 		dp_info("Resource level change not required");
 
-	dp_info("Resource level:%u selected for tput:%llu req_tput:%llu",
+	dp_info("Resource level:%u selected for tput:%u req_tput:%u",
 		rsrc_ctx->cur_resource_level, rsrc_ctx->cur_max_tput,
 		total_tput);
 }
@@ -720,8 +720,7 @@ wlan_dp_resource_mgr_notify_ndp_channel_info(
 {
 	struct wlan_dp_peer_priv_context *priv_ctx;
 	struct wlan_dp_resource_vote_node *vote_node;
-	struct  wlan_objmgr_vdev *vdev;
-	enum QDF_OPMODE opmode;
+	enum QDF_OPMODE opmode = QDF_NDI_MODE;
 	enum wlan_phymode mac0_phymode = 0, mac1_phymode = 0;
 	uint64_t mac0_tput = 0, mac1_tput = 0;
 	enum wlan_phymode host_phymode;
@@ -729,20 +728,6 @@ wlan_dp_resource_mgr_notify_ndp_channel_info(
 
 	if (!rsrc_ctx)
 		return;
-
-	vdev = wlan_peer_get_vdev(peer);
-	if (!vdev) {
-		dp_err("unable to get vdev ref from peer");
-		return;
-	}
-
-	opmode = wlan_vdev_mlme_get_opmode(vdev);
-	if (opmode != QDF_NDI_MODE) {
-		/*NDP_CONFIRM came on peer but vdev maps to different opmode*/
-		dp_err("NDP channel notify came for peer/vdev opmode not proper");
-		QDF_BUG(0);
-		return;
-	}
 
 	dp_rsrc_mgr_debug("NDP notify channel info called");
 	for (i = 0; i < num_channels; i++) {
@@ -803,10 +788,9 @@ wlan_dp_resource_mgr_notify_ndp_channel_info(
 	vote_node->tput0 = mac0_tput;
 	vote_node->phymode1 = mac1_phymode;
 	vote_node->tput1 = mac1_tput;
-	vote_node->nan_vote = true;
 	wlan_dp_resource_mgr_list_insert_vote_node(&rsrc_ctx->nan_list,
 						   vote_node, opmode);
-	dp_info("NDP new node phymode0:%u tput0:%llu phymode1:%u tput1:%llu list_len:%u",
+	dp_info("NDP new node phymode0:%u tput0:%u phymode1:%u tput1:%u list_len:%u",
 		vote_node->phymode0, vote_node->tput0,
 		vote_node->phymode1, vote_node->tput1,
 		qdf_list_size(&rsrc_ctx->nan_list));
@@ -935,10 +919,6 @@ wlan_dp_resource_mgr_vote_node_free(struct wlan_objmgr_peer *peer)
 	priv_ctx = dp_get_peer_priv_obj(vote_peer);
 	if (priv_ctx->vote_node) {
 		vote_node = priv_ctx->vote_node;
-		if (opmode != QDF_NDI_MODE && vote_node->nan_vote) {
-			dp_err("opmode not proper for nan vote resource");
-			QDF_BUG(0);
-		}
 		if (opmode == QDF_NDI_MODE)
 			qdf_list_remove_node(&rsrc_ctx->nan_list,
 					     &vote_node->node);
@@ -947,10 +927,9 @@ wlan_dp_resource_mgr_vote_node_free(struct wlan_objmgr_peer *peer)
 				&rsrc_ctx->mac_list[vote_node->mac_id],
 				&vote_node->node);
 
-		dp_info("vote node freed on vdev_id:%u mac_id:%u list_len:%u nan_vote:%u",
+		dp_info("vote node freed on vdev_id:%u mac_id:%u list_len:%u",
 			wlan_vdev_get_id(vdev), vote_node->mac_id,
-			qdf_list_size(&rsrc_ctx->mac_list[vote_node->mac_id]),
-			vote_node->nan_vote);
+			qdf_list_size(&rsrc_ctx->mac_list[vote_node->mac_id]));
 		qdf_mem_free(vote_node);
 		priv_ctx->vote_node = NULL;
 		wlan_dp_resource_mgr_select_max_phymodes(rsrc_ctx);
@@ -1122,7 +1101,6 @@ void wlan_dp_resource_mgr_attach(struct wlan_dp_psoc_context *dp_ctx)
 	struct wlan_dp_resource_mgr_ctx *rsrc_ctx;
 	struct cdp_soc_t *cdp_soc = dp_ctx->cdp_soc;
 	cdp_config_param_type val = {0};
-	cdp_config_param_type set_val = {0};
 	QDF_STATUS status;
 	int i;
 
@@ -1182,15 +1160,6 @@ void wlan_dp_resource_mgr_attach(struct wlan_dp_psoc_context *dp_ctx)
 		goto attach_err;
 	}
 
-	set_val.cdp_dyn_resource_mgr_support = true;
-	status = cdp_txrx_set_psoc_param(dp_ctx->cdp_soc,
-					 CDP_DYN_RESOURCE_MGR_SUPPORT, set_val);
-	if (QDF_IS_STATUS_ERROR(status)) {
-		dp_err("Failed to set dynamic resource mgr support status %d",
-		       status);
-		goto unregister_handler;
-	}
-
 	qdf_spinlock_create(&rsrc_ctx->rsrc_mgr_lock);
 	wlan_dp_resource_mgr_list_attach(rsrc_ctx);
 
@@ -1207,12 +1176,6 @@ void wlan_dp_resource_mgr_attach(struct wlan_dp_psoc_context *dp_ctx)
 		rsrc_ctx->mac_count);
 	return;
 
-unregister_handler:
-	status = wlan_objmgr_unregister_peer_phymode_change_notify_handler(
-			WLAN_COMP_DP, wlan_dp_resource_mgr_phymode_update,
-			rsrc_ctx);
-	if (QDF_IS_STATUS_ERROR(status))
-		dp_err("Failed to unregister peer phymode notification handler");
 attach_err:
 	dp_err("DP resource mgr attach failure");
 	qdf_mem_free(rsrc_ctx);

@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2016-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+ * Copyright (c) 2021-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -47,7 +47,6 @@
 bool nan_is_pairing_allowed(struct wlan_objmgr_psoc *psoc)
 {
 	struct nan_psoc_priv_obj *psoc_nan_obj;
-	uint8_t pair_cfg;
 
 	if (!psoc) {
 		nan_err("psoc is null");
@@ -60,8 +59,7 @@ bool nan_is_pairing_allowed(struct wlan_objmgr_psoc *psoc)
 		return false;
 	}
 
-	pair_cfg = psoc_nan_obj->cfg_param.nan_config & NAN_PARING_BIT;
-	return psoc_nan_obj->nan_caps.nan_pairing_peer_create_cap && pair_cfg;
+	return psoc_nan_obj->nan_caps.nan_pairing_peer_create_cap;
 }
 
 bool nan_is_peer_exist_for_opmode(struct wlan_objmgr_psoc *psoc,
@@ -107,14 +105,10 @@ void nan_update_pasn_peer_count(struct wlan_objmgr_vdev *vdev,
 		return;
 	}
 
-	if (is_increment) {
+	if (is_increment)
 		nan_vdev_obj->num_pasn_peers++;
-	} else if (!nan_vdev_obj->num_pasn_peers) {
-		nan_err("No PASN peers present");
-		return;
-	} else if (nan_vdev_obj->num_pasn_peers) {
+	else if (nan_vdev_obj->num_pasn_peers)
 		nan_vdev_obj->num_pasn_peers--;
-	}
 
 	nan_debug("Pasn peer count:%d", nan_vdev_obj->num_pasn_peers);
 }
@@ -150,8 +144,8 @@ nan_add_peer_in_migrated_addr_list(struct wlan_objmgr_psoc *psoc,
 		goto ref_rel;
 	}
 
-	idx = nan_vdev_priv->num_peer_migrated;
-	if (idx >= MAX_NAN_MIGRATED_PEERS) {
+	idx = nan_vdev_priv->num_peer_migrated++;
+	if (nan_vdev_priv->num_peer_migrated > MAX_NAN_MIGRATED_PEERS) {
 		nan_err("num migrated peers %d more than max migrated peers",
 			nan_vdev_priv->num_peer_migrated);
 		status = QDF_STATUS_E_FAILURE;
@@ -163,7 +157,6 @@ nan_add_peer_in_migrated_addr_list(struct wlan_objmgr_psoc *psoc,
 
 	nan_debug("add peer to migrated list at index %d", idx);
 
-	nan_vdev_priv->num_peer_migrated++;
 ref_rel:
 	wlan_objmgr_vdev_release_ref(vdev, WLAN_NAN_ID);
 	return status;
@@ -1016,7 +1009,7 @@ ndi_update_policy_mgr_conn_table(struct nan_datapath_confirm_event *confirm,
 		}
 	}
 
-	policy_mgr_incr_active_session(psoc, QDF_NDI_MODE, vdev_id, true);
+	policy_mgr_incr_active_session(psoc, QDF_NDI_MODE, vdev_id);
 
 	return status;
 }
@@ -1396,7 +1389,7 @@ static QDF_STATUS nan_handle_enable_rsp(struct nan_event_params *nan_event)
 			}
 			nan_debug("NAN vdev_id: %u", vdev_id);
 			policy_mgr_incr_active_session(psoc, QDF_NAN_DISC_MODE,
-						       vdev_id, true);
+						       vdev_id);
 			policy_mgr_process_force_scc_for_nan(psoc);
 
 			if_mgr_deliver_event(vdev,
@@ -1520,32 +1513,8 @@ QDF_STATUS nan_disable_cleanup(struct wlan_objmgr_psoc *psoc)
 	return status;
 }
 
-static QDF_STATUS nan_handle_disable_ind(struct nan_event_params *nan_event,
-					 uint8_t evt_type, bool *is_drop_evt)
+static QDF_STATUS nan_handle_disable_ind(struct nan_event_params *nan_event)
 {
-	uint8_t disable_req_type;
-	QDF_STATUS status;
-
-	status = nan_get_disable_req_info(nan_event->psoc, &disable_req_type);
-	if (QDF_IS_STATUS_ERROR(status)) {
-		nan_err("Unable to get nan disable req info");
-		*is_drop_evt = true;
-		return QDF_STATUS_E_FAILURE;
-	}
-
-	if ((disable_req_type == NAN_DISABLE_REQ_NB &&
-	     evt_type == nan_event_id_disable_ind) ||
-	    (disable_req_type == NAN_DISABLE_REQ_INTERNAL &&
-	     evt_type == nan_event_id_disable_rsp)) {
-		nan_debug("drop evt_type %d disable_req_type %d",
-			  evt_type, disable_req_type);
-		*is_drop_evt = true;
-		nan_cache_disable_req_info(nan_event->psoc,
-					   NAN_DISABLE_REQ_DEFAULT);
-		return QDF_STATUS_SUCCESS;
-	}
-
-	*is_drop_evt = false;
 	return nan_disable_cleanup(nan_event->psoc);
 }
 
@@ -1626,8 +1595,6 @@ QDF_STATUS nan_discovery_event_handler(struct scheduler_msg *msg)
 {
 	struct nan_event_params *nan_event;
 	struct nan_psoc_priv_obj *psoc_nan_obj;
-	QDF_STATUS status;
-	bool is_drop_event;
 
 	if (!msg || !msg->bodyptr) {
 		nan_err("msg body is null");
@@ -1651,16 +1618,7 @@ QDF_STATUS nan_discovery_event_handler(struct scheduler_msg *msg)
 		nan_handle_enable_rsp(nan_event);
 		break;
 	case nan_event_id_disable_ind:
-	case nan_event_id_disable_rsp:
-		/*
-		 * drop NAN disable indication if NAN Disable Response is
-		 * already sent to the userspace
-		 */
-
-		status = nan_handle_disable_ind(nan_event, msg->type,
-						&is_drop_event);
-		if (is_drop_event)
-			return status;
+		nan_handle_disable_ind(nan_event);
 		break;
 	case nan_event_id_generic_rsp:
 	case nan_event_id_error_rsp:
@@ -2457,7 +2415,7 @@ void nan_pasn_peer_handle_del_rsp(struct wlan_objmgr_psoc *psoc,
 	wlan_objmgr_vdev_release_ref(nan_vdev, WLAN_NAN_ID);
 
 	if (psoc_nan_obj->cb_obj.ucfg_nan_request_process_cb) {
-		cookie = (uint8_t *)psoc_nan_obj->nan_pairing_delete_ctx;
+		cookie = (uint8_t *)psoc_nan_obj->nan_pairing_create_ctx;
 		psoc_nan_obj->cb_obj.ucfg_nan_request_process_cb(cookie);
 	}
 
@@ -2595,7 +2553,7 @@ QDF_STATUS nan_handle_delete_all_pasn_peers(struct wlan_objmgr_psoc *psoc,
 	nan_vdev_obj->num_pasn_peers = 0;
 
 	if (psoc_nan_obj->cb_obj.ucfg_nan_request_process_cb) {
-		cookie = (uint8_t *)psoc_nan_obj->nan_delete_all_peer_ctx;
+		cookie = (uint8_t *)psoc_nan_obj->nan_pairing_create_ctx;
 		psoc_nan_obj->cb_obj.ucfg_nan_request_process_cb(cookie);
 	}
 
@@ -2615,180 +2573,4 @@ struct qdf_mac_addr *nan_get_fw_addr(struct wlan_objmgr_psoc *psoc)
 	}
 
 	return &psoc_priv->fw_nan_addr;
-}
-
-QDF_STATUS nan_cache_ndp_peer_mac_addr(struct wlan_objmgr_psoc *psoc,
-				       struct qdf_mac_addr *peer_mac_addr)
-{
-	struct nan_psoc_priv_obj *nan_psoc_priv;
-	uint8_t idx;
-
-	nan_psoc_priv = nan_get_psoc_priv_obj(psoc);
-	if (!nan_psoc_priv) {
-		nan_err("NAN PSOC priv obj is null");
-		return QDF_STATUS_E_NULL_VALUE;
-	}
-
-	idx = nan_psoc_priv->num_ndp_peers;
-	if (idx >= MAX_NDP_PEERS) {
-		nan_err("num peers %d more than max NDP peers",
-			nan_psoc_priv->num_ndp_peers);
-		return QDF_STATUS_E_FAILURE;
-	}
-
-	qdf_mem_copy(nan_psoc_priv->ndp_peer_mac_addr[idx].bytes,
-		     peer_mac_addr->bytes, QDF_MAC_ADDR_SIZE);
-
-	nan_debug("cached peer at index %d", idx);
-
-	nan_psoc_priv->num_ndp_peers++;
-
-	return QDF_STATUS_SUCCESS;
-}
-
-/**
- * nan_remove_ndp_peer_mac_addr() - remove NDP peer address from the NAN PSOC
- * private object.
- * @psoc: pointer to PSOC object
- * @peer_mac_addr: peer mac address
- *
- * Return: QDF status
- */
-QDF_STATUS nan_remove_ndp_peer_mac_addr(struct wlan_objmgr_psoc *psoc,
-					struct qdf_mac_addr *peer_mac_addr)
-{
-	struct nan_psoc_priv_obj *nan_psoc_priv;
-	uint8_t i = 0, idx;
-
-	nan_psoc_priv = nan_get_psoc_priv_obj(psoc);
-	if (!nan_psoc_priv) {
-		nan_err("NAN PSOC priv obj is null");
-		return QDF_STATUS_E_NULL_VALUE;
-	}
-
-	idx = nan_psoc_priv->num_ndp_peers;
-	if (idx > MAX_NDP_PEERS) {
-		nan_err("num peers %d more than max NDP peers",
-			nan_psoc_priv->num_ndp_peers);
-		return QDF_STATUS_E_FAILURE;
-	}
-
-	if (!idx) {
-		nan_debug("last NDP peer removed");
-		return QDF_STATUS_SUCCESS;
-	}
-
-	for (i = 0; i < idx; i++) {
-		if (qdf_is_macaddr_equal(
-					peer_mac_addr,
-					&nan_psoc_priv->ndp_peer_mac_addr[i])) {
-			/*
-			 * move the peer address from last position to
-			 * position i
-			 */
-			qdf_mem_copy(
-			nan_psoc_priv->ndp_peer_mac_addr[i].bytes,
-			nan_psoc_priv->ndp_peer_mac_addr[idx - 1].bytes,
-			QDF_MAC_ADDR_SIZE);
-			break;
-		}
-	}
-
-	nan_debug("peer remove from migrated list at index %d with max peer %d",
-		  i, idx);
-	nan_psoc_priv->num_ndp_peers--;
-
-	return QDF_STATUS_SUCCESS;
-}
-
-void nan_clean_up_all_ndp_peers(struct wlan_objmgr_psoc *psoc, uint8_t vdev_id)
-{
-	struct nan_psoc_priv_obj *nan_psoc_priv;
-	uint8_t i;
-
-	nan_psoc_priv = nan_get_psoc_priv_obj(psoc);
-	if (!nan_psoc_priv) {
-		nan_err("NAN PSOC priv obj is null");
-		return;
-	}
-
-	for (i = 0; i < nan_psoc_priv->num_ndp_peers; i++)
-		nan_psoc_priv->cb_obj.delete_peers_by_addr(
-					vdev_id,
-					nan_psoc_priv->ndp_peer_mac_addr[i]);
-}
-
-bool nan_is_allowed(struct wlan_objmgr_psoc *psoc)
-{
-	struct nan_psoc_priv_obj *psoc_nan_obj;
-
-	psoc_nan_obj = nan_get_psoc_priv_obj(psoc);
-	if (!psoc_nan_obj) {
-		nan_err("psoc_nan_obj is null");
-		return false;
-	}
-
-	return psoc_nan_obj->cfg_param.enable;
-}
-
-QDF_STATUS nan_cache_disable_req_info(struct wlan_objmgr_psoc *psoc,
-				      uint8_t value)
-{
-	struct wlan_objmgr_vdev *vdev;
-	struct nan_vdev_priv_obj *vdev_nan_obj;
-	QDF_STATUS status = QDF_STATUS_SUCCESS;
-
-	if (!ucfg_nan_is_vdev_creation_allowed(psoc))
-		return QDF_STATUS_SUCCESS;
-
-	vdev = wlan_objmgr_get_vdev_by_opmode_from_psoc(psoc, QDF_NAN_DISC_MODE,
-							WLAN_NAN_ID);
-	if (!vdev) {
-		nan_err("vdev is null");
-		return QDF_STATUS_E_NULL_VALUE;
-	}
-
-	vdev_nan_obj = nan_get_vdev_priv_obj(vdev);
-	if (!vdev_nan_obj) {
-		nan_err("nan vdev priv obj is null");
-		status = QDF_STATUS_E_NULL_VALUE;
-		goto end;
-	}
-
-	vdev_nan_obj->nan_disable_req_info = value;
-end:
-	wlan_objmgr_vdev_release_ref(vdev, WLAN_NAN_ID);
-	return status;
-}
-
-QDF_STATUS nan_get_disable_req_info(struct wlan_objmgr_psoc *psoc,
-				    uint8_t *value)
-{
-	struct wlan_objmgr_vdev *vdev;
-	struct nan_vdev_priv_obj *vdev_nan_obj;
-	QDF_STATUS status = QDF_STATUS_SUCCESS;
-
-	if (!ucfg_nan_is_vdev_creation_allowed(psoc)) {
-		*value = NAN_DISABLE_REQ_DEFAULT;
-		return QDF_STATUS_SUCCESS;
-	}
-
-	vdev = wlan_objmgr_get_vdev_by_opmode_from_psoc(psoc, QDF_NAN_DISC_MODE,
-							WLAN_NAN_ID);
-	if (!vdev) {
-		nan_err("vdev is null");
-		return QDF_STATUS_E_NULL_VALUE;
-	}
-
-	vdev_nan_obj = nan_get_vdev_priv_obj(vdev);
-	if (!vdev_nan_obj) {
-		nan_err("nan vdev priv obj is null");
-		status = QDF_STATUS_E_NULL_VALUE;
-		goto end;
-	}
-
-	*value = vdev_nan_obj->nan_disable_req_info;
-end:
-	wlan_objmgr_vdev_release_ref(vdev, WLAN_NAN_ID);
-	return status;
 }

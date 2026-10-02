@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2012, 2014-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+ * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -406,8 +406,6 @@ void hdd_ipv6_notifier_work_queue(struct work_struct *work);
  * wlan_hdd_cfg80211_get_txpower() - cfg80211 get power handler function
  * @wiphy: Pointer to wiphy structure.
  * @wdev: Pointer to wireless_dev structure.
- * @radio_idx: Radio index
- * @link_id: Link index
  * @dbm: dbm
  *
  * This is the cfg80211 get txpower handler function which invokes
@@ -416,45 +414,23 @@ void hdd_ipv6_notifier_work_queue(struct work_struct *work);
  *
  * Return: 0 for success, error number on failure.
  */
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(6, 17, 0))
-int wlan_hdd_cfg80211_get_txpower(struct wiphy *wiphy,
-				  struct wireless_dev *wdev,
-				  int radio_idx,
-				  unsigned int link_id,
-				  int *dbm);
-#elif (LINUX_VERSION_CODE >= KERNEL_VERSION(6, 13, 0))
-int wlan_hdd_cfg80211_get_txpower(struct wiphy *wiphy,
-				  struct wireless_dev *wdev,
-				  unsigned int link_id,
-				  int *dbm);
-#else
 int wlan_hdd_cfg80211_get_txpower(struct wiphy *wiphy,
 				  struct wireless_dev *wdev,
 				  int *dbm);
-#endif
 
 /**
  * wlan_hdd_cfg80211_set_txpower() - set TX power
  * @wiphy: Pointer to wiphy
  * @wdev: Pointer to network device
- * @radio_idx: Radio index
  * @type: TX power setting type
  * @dbm: TX power in dbm
  *
  * Return: 0 for success, non-zero for failure
  */
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(6, 17, 0))
-int wlan_hdd_cfg80211_set_txpower(struct wiphy *wiphy,
-				  struct wireless_dev *wdev,
-				  int radio_idx,
-				  enum nl80211_tx_power_setting type,
-				  int dbm);
-#else
 int wlan_hdd_cfg80211_set_txpower(struct wiphy *wiphy,
 				  struct wireless_dev *wdev,
 				  enum nl80211_tx_power_setting type,
 				  int dbm);
-#endif
 
 /**
  * wlan_hdd_cfg80211_set_power_mgmt() - set cfg80211 power management config
@@ -554,14 +530,13 @@ int hdd_set_power_config(struct hdd_context *hddctx,
  * @hddctx: HDD context
  * @adapter: HDD adapter
  * @ps_ito: power save inactivitiy duration in ms
- * @ps_opm_level: power save opm level
  * @spec_wake: power save speculative wake duration in ms
  *
  * Return: 0 on success; Errno on failure
  */
 int hdd_set_power_config_params(struct hdd_context *hddctx,
-				struct hdd_adapter *adapter, uint16_t ps_ito,
-				uint8_t ps_opm_level, uint16_t spec_wake);
+				struct hdd_adapter *adapter,
+				uint16_t ps_ito, uint16_t spec_wake);
 #ifdef FEATURE_WLAN_DIAG_SUPPORT
 /**
  * hdd_wlan_suspend_resume_event()- send suspend/resume state

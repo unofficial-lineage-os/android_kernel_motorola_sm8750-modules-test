@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2012-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+ * Copyright (c) 2021-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -398,7 +398,6 @@ QDF_STATUS wlansap_pre_start_bss_acs_scan_callback(mac_handle_t mac_handle,
 {
 	uint32_t oper_channel = SAP_CHANNEL_NOT_SELECTED;
 	struct mac_context *mac_ctx = MAC_CONTEXT(mac_handle);
-	struct wlan_objmgr_vdev *vdev;
 
 	host_log_acs_scan_done(acs_scan_done_status_str(scan_status),
 			  sessionid, scanid);
@@ -406,15 +405,6 @@ QDF_STATUS wlansap_pre_start_bss_acs_scan_callback(mac_handle_t mac_handle,
 	if (sap_ctx->optimize_acs_chan_selected) {
 		sap_debug("SAP channel selected using first clean channel, ignore scan complete event");
 		return QDF_STATUS_SUCCESS;
-	}
-
-	vdev = wlan_objmgr_get_vdev_by_id_from_pdev(mac_ctx->pdev,
-						    sap_ctx->vdev_id,
-						    WLAN_LEGACY_SAP_ID);
-
-	if (!vdev) {
-		sap_err("Unable to get vdev ref vdev_id:%d", sap_ctx->vdev_id);
-		goto close_session;
 	}
 
 	/* This has to be done before the ACS selects default channel */
@@ -437,7 +427,7 @@ QDF_STATUS wlansap_pre_start_bss_acs_scan_callback(mac_handle_t mac_handle,
 			scan_status);
 		oper_channel =
 			sap_select_default_oper_chan(mac_ctx, sap_ctx);
-		wlansap_set_acs_ch_freq(mac_ctx, sap_ctx, oper_channel);
+		wlansap_set_acs_ch_freq(sap_ctx, oper_channel);
 		sap_ctx->acs_cfg->pri_ch_freq = oper_channel;
 		sap_config_acs_result(mac_handle, sap_ctx,
 				      sap_ctx->acs_cfg->ht_sec_ch_freq);
@@ -464,7 +454,7 @@ QDF_STATUS wlansap_pre_start_bss_acs_scan_callback(mac_handle_t mac_handle,
 		oper_channel = sap_select_default_oper_chan(mac_ctx, sap_ctx);
 	}
 
-	wlansap_set_acs_ch_freq(mac_ctx, sap_ctx, oper_channel);
+	wlansap_set_acs_ch_freq(sap_ctx, oper_channel);
 	sap_ctx->acs_cfg->pri_ch_freq = oper_channel;
 	sap_config_acs_result(mac_handle, sap_ctx,
 			      sap_ctx->acs_cfg->ht_sec_ch_freq);
@@ -472,8 +462,6 @@ QDF_STATUS wlansap_pre_start_bss_acs_scan_callback(mac_handle_t mac_handle,
 	sap_ctx->sap_state = eSAP_ACS_CHANNEL_SELECTED;
 	sap_ctx->sap_status = eSAP_STATUS_SUCCESS;
 close_session:
-	if (vdev)
-		wlan_objmgr_vdev_release_ref(vdev, WLAN_LEGACY_SAP_ID);
 #ifdef SOFTAP_CHANNEL_RANGE
 	if (sap_ctx->freq_list) {
 		/*
@@ -1121,7 +1109,6 @@ QDF_STATUS wlansap_roam_callback(void *ctx,
 	uint8_t intf;
 	bool is_csa_needed;
 	qdf_freq_t chan_freq = 0;
-	struct if_mgr_event_data csa_complete_ev_data;
 
 	if (QDF_IS_STATUS_ERROR(wlansap_context_get(sap_ctx)))
 		return QDF_STATUS_E_FAILURE;
@@ -1215,6 +1202,10 @@ QDF_STATUS wlansap_roam_callback(void *ctx,
 			break;
 		}
 
+		sap_debug("sapdfs: Indicate eSAP_DFS_RADAR_DETECT to HDD");
+		sap_signal_hdd_event(sap_ctx, NULL, eSAP_DFS_RADAR_DETECT,
+				     (void *) eSAP_STATUS_SUCCESS);
+
 		is_csa_needed =
 			sap_is_chan_change_needed_for_radar(sap_ctx,
 							    &chan_freq);
@@ -1224,16 +1215,11 @@ QDF_STATUS wlansap_roam_callback(void *ctx,
 			break;
 		} else if (!is_csa_needed && chan_freq) {
 			mac_ctx->sap.SapDfsInfo.target_chan_freq = chan_freq;
-			sap_ctx->sap_radar_found_status = true;
 			break;
 		} else {
 			mac_ctx->sap.SapDfsInfo.target_chan_freq =
 						sap_indicate_radar(sap_ctx);
 		}
-
-		sap_debug("sapdfs: Indicate eSAP_DFS_RADAR_DETECT to HDD");
-		sap_signal_hdd_event(sap_ctx, NULL, eSAP_DFS_RADAR_DETECT,
-				     (void *) eSAP_STATUS_SUCCESS);
 
 		/* if there is an assigned next channel hopping */
 		if (0 < mac_ctx->sap.SapDfsInfo.user_provided_target_chan_freq) {
@@ -1282,10 +1268,9 @@ QDF_STATUS wlansap_roam_callback(void *ctx,
 	case eCSR_ROAM_DFS_CHAN_SW_NOTIFY:
 		break;
 	case eCSR_ROAM_SET_CHANNEL_RSP:
-		csa_complete_ev_data.data = &sap_ctx->csa_reason;
 		ucfg_if_mgr_deliver_event(sap_ctx->vdev,
 					  WLAN_IF_MGR_EV_AP_CSA_COMPLETE,
-					  &csa_complete_ev_data);
+					  NULL);
 		break;
 	case eCSR_ROAM_CAC_COMPLETE_IND:
 		break;
@@ -1817,7 +1802,7 @@ void wlansap_process_chan_info_event(struct sap_context *sap_ctx,
 	wlan_abort_scan(mac->pdev, WLAN_INVALID_PDEV_ID,
 			sap_ctx->sessionId, INVALID_SCAN_ID, false);
 
-	wlansap_set_acs_ch_freq(mac, sap_ctx, roam_info->chan_info_freq);
+	wlansap_set_acs_ch_freq(sap_ctx, roam_info->chan_info_freq);
 	sap_ctx->acs_cfg->pri_ch_freq = roam_info->chan_info_freq;
 	sap_config_acs_result(MAC_HANDLE(mac), sap_ctx,
 			      sap_ctx->acs_cfg->ht_sec_ch_freq);

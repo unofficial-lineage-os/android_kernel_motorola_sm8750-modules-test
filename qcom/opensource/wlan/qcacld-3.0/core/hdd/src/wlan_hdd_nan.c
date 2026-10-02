@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2012-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+ * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -76,8 +76,6 @@ static int __wlan_hdd_cfg80211_nan_ext_request(struct wiphy *wiphy,
 	struct hdd_context *hdd_ctx = wiphy_priv(wiphy);
 	struct net_device *dev = wdev->netdev;
 	struct hdd_adapter *adapter = WLAN_HDD_GET_PRIV_PTR(dev);
-	enum scan_reject_states out_reason = SCAN_REJECT_DEFAULT;
-	uint8_t conc_vdev_id;
 
 	hdd_enter_dev(wdev->netdev);
 
@@ -95,11 +93,9 @@ static int __wlan_hdd_cfg80211_nan_ext_request(struct wiphy *wiphy,
 		return -EPERM;
 	}
 
-	if (hdd_is_connection_in_progress(&conc_vdev_id, &out_reason)) {
-		if (out_reason != EAPOL_IN_PROGRESS) {
-			hdd_err("NAN command refused, reason %d", out_reason);
-			return -EAGAIN;
-		}
+	if (hdd_is_connection_in_progress(NULL, NULL)) {
+		hdd_err("Connection refused: conn in progress");
+		return -EAGAIN;
 	}
 
 	return os_if_process_nan_req(hdd_ctx->pdev, adapter->deflink->vdev_id,
@@ -207,8 +203,7 @@ void hdd_nan_sr_concurrency_update(struct nan_event_params *nan_evt)
 						sta_vdev, SR_OPERATION_SUSPEND,
 						SR_REASON_CODE_CONCURRENCY);
 		}
-		if (nan_evt->evt_type == nan_event_id_disable_ind ||
-		    nan_evt->evt_type == nan_event_id_disable_rsp) {
+		if (nan_evt->evt_type == nan_event_id_disable_ind) {
 			if (conn_count > 2) {
 				status =
 				policy_mgr_get_mac_id_by_session_id(

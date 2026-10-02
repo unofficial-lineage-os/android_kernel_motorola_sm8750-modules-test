@@ -1,5 +1,5 @@
 /*
- * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+ * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -335,24 +335,13 @@
 		true, \
 		"Control to enable TCP limit output byte")
 
-#define WLAN_CFG_TCP_ADV_WIN_SCALE_MIN		0
-#define WLAN_CFG_TCP_ADV_WIN_SCALE_MAX		3
-#define WLAN_CFG_TCP_ADV_WIN_SCALE_DEFAULT	1
-#define DP_TCP_ADV_WIN_SCL_BIT			BIT(0)
-#define DP_TCP_ADV_WIN_SCALE_DISC_LOW		BIT(1)
-
 /*
  * <ini>
  * gTcpAdvWinScaleEnable - Control to enable  TCP adv window scaling
- * @Min: 0
- * @Max: 3
- * @Default: 1
+ * @Default: true
  *
  * This ini is used to enable dynamic configuration of TCP adv window scaling
  * system parameter.
- * Value 0: TCP Advanced WIN scale control disable.
- * Value 1: Enable TCP Advanced WIN scale control.
- * Value 3: Enable feature to set WIN Adv scale level low on disconnect.
  *
  * Supported Feature: Tcp Advance Window Scaling
  *
@@ -361,12 +350,9 @@
  * </ini>
  */
 #define CFG_DP_ENABLE_TCP_ADV_WIN_SCALE \
-		CFG_INI_UINT( \
+		CFG_INI_BOOL( \
 		"gTcpAdvWinScaleEnable", \
-		WLAN_CFG_TCP_ADV_WIN_SCALE_MIN, \
-		WLAN_CFG_TCP_ADV_WIN_SCALE_MAX, \
-		WLAN_CFG_TCP_ADV_WIN_SCALE_DEFAULT, \
-		CFG_VALUE_OR_DEFAULT, \
+		true, \
 		"Control to enable  TCP adv window scaling")
 
 /*
@@ -1107,7 +1093,7 @@
  * gEnableNUDTracking - Will enable or disable NUD tracking within driver
  * @Min: 0
  * @Max: 3
- * @Default: 0
+ * @Default: 2
  *
  * This ini is used to specify the behaviour of the driver for NUD tracking.
  * If the ini value is:-
@@ -1129,7 +1115,7 @@
 		CFG_INI_UINT("gEnableNUDTracking", \
 		 0, \
 		 3, \
-		 0, \
+		 2, \
 		 CFG_VALUE_OR_DEFAULT, "Driver NUD tracking behaviour")
 
 #define CFG_DP_ENABLE_NUD_TRACKING_ALL \
@@ -1298,43 +1284,6 @@
 	CFG(CFG_DP_RX_FISA_LRU_DEL_ENABLE)
 #else
 #define CFG_DP_FISA
-#endif
-
-#ifdef WLAN_HAPS_ENABLE
-#define WLAN_CFG_HAPS_CONFIG         (0)
-#define WLAN_CFG_HAPS_CONFIG_MIN     (0)
-#define WLAN_CFG_HAPS_CONFIG_MAX     (0xFFFFFFFF)
-
-/*
- * <ini>
- * dp_haps_config - Power save configuration for HAPS
- *
- * @min: 0x0
- * @max: 0xffffffff
- * @default: 0x0
- *
- * |31                         2|        1          |     0      |
- * +----------------------------+-------------------+------------+
- * |           RSVD             |       sync        |    E/D     |
- * +----------------------------+-------------------+------------+
- *
- * bit 0    : Enable/Disable haps feature
- * bit 1    : Sync and update qtime cnss timestamp
- * bit 2-31 : Reserved for future usage
- *
- * </ini>
- */
-#define CFG_HAPS_CONFIG \
-	CFG_INI_UINT("dp_haps_config", \
-		     WLAN_CFG_HAPS_CONFIG_MIN, \
-		     WLAN_CFG_HAPS_CONFIG_MAX, \
-		     WLAN_CFG_HAPS_CONFIG, \
-		     CFG_VALUE_OR_DEFAULT, \
-		     "HAPS flags for power save")
-
-#define CFG_DP_HAPS CFG(CFG_HAPS_CONFIG)
-#else
-#define CFG_DP_HAPS
 #endif
 
 /*TODO Flow control part to be moved to DP later*/
@@ -1535,36 +1484,6 @@
 #define CFG_DP_DYNAMIC_RESOURCE_MGMT
 #endif
 
-#define WLAN_CFG_DP_IRQ_AFFINITY_MASK 0
-#define WLAN_CFG_DP_IRQ_AFFINITY_MASK_MIN 0
-#define WLAN_CFG_DP_IRQ_AFFINITY_MASK_MAX 0x3FF
-
-/*
- * <ini>
- * dp_irq_affinity_ctrl - Affinity control for Datapath interrupts
- * @Min: 0
- * @Max: 0x3FF
- * @Default: 0
- *
- * This ini is used to control Datapath interrupt affinity.
- * The value 0 is used to disable the cusotm control of DP interrupts.
- * The value 0-0x3FF are used to indicate a CPU bitmask used to affine the DP
- * interrupts when system-wide throughput crosses a certain threshold.
- *
- * Supported modes: All modes
- *
- * Usage: External
- *
- * </ini>
- */
-#define CFG_DP_IRQ_AFFINITY_MASK \
-	CFG_INI_UINT("dp_irq_affinity_mask", \
-		     WLAN_CFG_DP_IRQ_AFFINITY_MASK_MIN, \
-		     WLAN_CFG_DP_IRQ_AFFINITY_MASK_MAX, \
-		     WLAN_CFG_DP_IRQ_AFFINITY_MASK, \
-		     CFG_VALUE_OR_DEFAULT, \
-		     "DP interrupt affinity control")
-
 /*
  * <ini>
  * dp_ipa_debug_enable - support IPA debugging
@@ -1619,8 +1538,6 @@
 	CFG_DP_FLOW_BALANCE \
 	CFG_DP_STC \
 	CFG_DP_DYNAMIC_RESOURCE_MGMT \
-	CFG(CFG_DP_IPA_DEBUG_ENABLE) \
-	CFG(CFG_DP_IRQ_AFFINITY_MASK) \
-	CFG_DP_HAPS
+	CFG(CFG_DP_IPA_DEBUG_ENABLE)
 
 #endif /* WLAN_DP_CFG_H__ */

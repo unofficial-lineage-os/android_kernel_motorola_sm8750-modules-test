@@ -1,5 +1,5 @@
 /*
- * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+ * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -53,7 +53,6 @@
 #include "cdp_txrx_ctrl.h"
 #include "wlan_dp_load_balance.h"
 #include "wlan_dp_flow_balance.h"
-#include "wlan_dp_haps.h"
 
 #ifdef FEATURE_DIRECT_LINK
 /**
@@ -727,7 +726,6 @@ QDF_STATUS ucfg_dp_psoc_open(struct wlan_objmgr_psoc *psoc)
 	dp_trace_init(psoc);
 	dp_bus_bandwidth_init(psoc);
 	wlan_dp_load_balancer_init(psoc);
-	dp_haps_init(psoc);
 	qdf_wake_lock_create(&dp_ctx->rx_wake_lock, "qcom_rx_wakelock");
 
 	return QDF_STATUS_SUCCESS;
@@ -1920,24 +1918,6 @@ void ucfg_dp_nud_indicate_roam(struct wlan_objmgr_vdev *vdev)
 	dp_nud_indicate_roam(vdev);
 }
 
-#ifdef WLAN_HAPS_ENABLE
-uint32_t ucfg_dp_get_haps_config(struct wlan_objmgr_psoc *psoc)
-{
-	struct wlan_dp_psoc_context *dp_ctx = dp_psoc_get_priv(psoc);
-
-	if (!dp_ctx) {
-		dp_err("DP Context is NULL");
-		return 0;
-	}
-	return dp_ctx->dp_cfg.haps_config;
-}
-#else
-uint32_t ucfg_dp_get_haps_config(struct wlan_objmgr_psoc *psoc)
-{
-	return 0;
-}
-#endif
-
 void ucfg_dp_clear_arp_stats(struct wlan_objmgr_vdev *vdev)
 {
 	struct wlan_dp_link *dp_link = dp_get_vdev_priv_obj(vdev);
@@ -2507,12 +2487,9 @@ void ucfg_dp_register_hdd_callbacks(struct wlan_objmgr_psoc *psoc,
 	dp_ctx->dp_ops.osif_dp_process_mic_error =
 		cb_obj->osif_dp_process_mic_error;
 	dp_ctx->dp_ops.link_monitoring_cb = cb_obj->link_monitoring_cb;
-	dp_ctx->dp_ops.dp_get_ndev_by_vdev_id = cb_obj->dp_get_ndev_by_vdev_id;
 	ucfg_dp_register_direct_link_hdd_cbs(dp_ctx, cb_obj);
 	ucfg_dp_register_ipa_wds_hdd_cbs(dp_ctx, cb_obj);
 	ucfg_dp_register_stc_hdd_cbs(dp_ctx, cb_obj);
-	dp_ctx->dp_ops.wlan_dp_haps_update_qtime_sync_period =
-				cb_obj->wlan_dp_haps_update_qtime_sync_period;
 }
 
 void ucfg_dp_register_event_handler(struct wlan_objmgr_psoc *psoc,
@@ -3394,17 +3371,4 @@ int ucfg_dp_set_def_tidmap_prty(struct wlan_objmgr_vdev *vdev,
 					 CDP_TIDMAP_PRTY, value);
 
 	return qdf_status_to_os_return(status);
-}
-
-void ucfg_dp_set_ipv4_addr(struct wlan_objmgr_vdev *vdev, uint8_t *ip_addr)
-{
-	struct wlan_dp_link *dp_link = dp_get_vdev_priv_obj(vdev);
-
-	if (!dp_link) {
-		dp_err("Unable to get DP link");
-		return;
-	}
-
-	qdf_mem_copy(&dp_link->dp_intf->ipv4_addr, ip_addr,
-		     QDF_IPV4_ADDR_SIZE);
 }

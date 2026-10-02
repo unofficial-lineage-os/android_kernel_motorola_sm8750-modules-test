@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2012-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+ * Copyright (c) 2021-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -60,7 +60,6 @@
 #include "os_if_dp.h"
 #include "wlan_ipa_ucfg_api.h"
 #include "wlan_hdd_stats.h"
-#include "wlan_psoc_mlme_ucfg_api.h"
 
 #ifdef TX_MULTIQ_PER_AC
 #if defined(QCA_LL_TX_FLOW_CONTROL_V2) || defined(QCA_LL_PDEV_TX_FLOW_CONTROL)
@@ -671,7 +670,7 @@ static void __hdd_tx_timeout(struct net_device *dev)
 	 * recovery here
 	 */
 
-	for (i = 0; i < dev->num_tx_queues; i++) {
+	for (i = 0; i < NUM_TX_QUEUES; i++) {
 		txq = netdev_get_tx_queue(dev, i);
 		hdd_debug("Queue: %d status: %d txq->trans_start: %lu",
 			  i, netif_tx_queue_stopped(txq), txq->trans_start);
@@ -865,16 +864,6 @@ static inline bool hdd_netdev_queue_is_locked(struct netdev_queue *txq)
 }
 #endif
 
-static void
-hdd_txq_trans_update(struct net_device *dev, struct netdev_queue *txq)
-{
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(6, 16, 0))
-	txq_trans_update(dev, txq);
-#else
-	txq_trans_update(txq);
-#endif
-}
-
 /**
  * wlan_hdd_update_txq_timestamp() - update txq timestamp
  * @dev: net device
@@ -886,7 +875,7 @@ static void wlan_hdd_update_txq_timestamp(struct net_device *dev)
 	struct netdev_queue *txq;
 	int i;
 
-	for (i = 0; i < dev->num_tx_queues; i++) {
+	for (i = 0; i < NUM_TX_QUEUES; i++) {
 		txq = netdev_get_tx_queue(dev, i);
 
 		/*
@@ -898,7 +887,7 @@ static void wlan_hdd_update_txq_timestamp(struct net_device *dev)
 		 */
 		if (!hdd_netdev_queue_is_locked(txq)) {
 			if (__netif_tx_trylock(txq)) {
-				hdd_txq_trans_update(dev, txq);
+				txq_trans_update(txq);
 				__netif_tx_unlock(txq);
 			}
 		}
@@ -949,13 +938,12 @@ static void wlan_hdd_update_pause_time(struct hdd_adapter *adapter,
 
 uint32_t
 wlan_hdd_dump_queue_history_state(struct hdd_netif_queue_history *queue_history,
-				  uint8_t num_tx_queues, char *buf,
-				  uint32_t size)
+				  char *buf, uint32_t size)
 {
 	unsigned int i;
 	unsigned int index = 0;
 
-	for (i = 0; i < num_tx_queues; i++) {
+	for (i = 0; i < NUM_TX_QUEUES; i++) {
 		index += qdf_scnprintf(buf + index,
 				       size - index,
 				       "%u:0x%lx ",
@@ -979,9 +967,12 @@ wlan_hdd_update_queue_history_state(struct net_device *dev,
 				    struct hdd_netif_queue_history *q_hist)
 {
 	unsigned int i = 0;
+	uint32_t num_tx_queues = 0;
 	struct netdev_queue *txq = NULL;
 
-	for (i = 0; i < dev->num_tx_queues; i++) {
+	num_tx_queues = qdf_min(dev->num_tx_queues, (uint32_t)NUM_TX_QUEUES);
+
+	for (i = 0; i < num_tx_queues; i++) {
 		txq = netdev_get_tx_queue(dev, i);
 		q_hist->tx_q_state[i] = txq->state;
 	}
@@ -1325,7 +1316,6 @@ QDF_STATUS wlan_hdd_init_mon_link(struct hdd_context *hdd_ctx,
 	struct ol_txrx_desc_type sta_desc = {0};
 	void *soc = cds_get_context(QDF_MODULE_ID_SOC);
 	struct wlan_objmgr_vdev *vdev;
-	bool eht_capab;
 
 	vdev = hdd_objmgr_get_vdev_by_user(link_info, WLAN_DP_ID);
 	if (!vdev) {
@@ -1333,14 +1323,8 @@ QDF_STATUS wlan_hdd_init_mon_link(struct hdd_context *hdd_ctx,
 		return QDF_STATUS_E_INVAL;
 	}
 
-	/* self peer address extraction */
-	ucfg_psoc_mlme_get_11be_capab(hdd_ctx->psoc, &eht_capab);
-	if (eht_capab)
-		WLAN_ADDR_COPY(sta_desc.peer_addr.bytes,
-			       link_info->link_addr.bytes);
-	else
-		WLAN_ADDR_COPY(sta_desc.peer_addr.bytes,
-			       wlan_vdev_mlme_get_macaddr(vdev));
+	WLAN_ADDR_COPY(sta_desc.peer_addr.bytes,
+		       link_info->link_addr.bytes);
 
 	qdf_status = ucfg_dp_mon_register_txrx_ops(vdev);
 	if (QDF_STATUS_SUCCESS != qdf_status) {
@@ -1361,7 +1345,7 @@ QDF_STATUS wlan_hdd_init_mon_link(struct hdd_context *hdd_ctx,
 	}
 
 	qdf_status = sme_create_mon_session(hdd_ctx->mac_handle,
-					    sta_desc.peer_addr.bytes,
+					    link_info->link_addr.bytes,
 					    link_info->vdev_id);
 	if (QDF_STATUS_SUCCESS != qdf_status) {
 		hdd_err("sme_create_mon_session() failed to register. Status= %d [0x%08X]",

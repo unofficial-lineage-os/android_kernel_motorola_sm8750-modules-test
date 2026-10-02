@@ -1,5 +1,5 @@
 /*
- * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+ * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -49,7 +49,6 @@
 #include "wlan_dp_stc.h"
 #include "wlan_dp_spm.h"
 #include "wlan_dp_telemetry_priv.h"
-#include "wlan_dp_haps.h"
 
 #ifdef WLAN_DP_PROFILE_SUPPORT
 /* Memory profile table based on supported caps */
@@ -239,7 +238,7 @@ QDF_STATUS dp_get_hlp_peer_state(struct wlan_dp_intf *dp_intf,
 	if (hlp_node && hlp_node->is_processing)
 		return QDF_STATUS_SUCCESS;
 
-	dp_err_rl("Failed to get peer state");
+	dp_debug_rl("Failed to get peer state");
 	return QDF_STATUS_E_FAILURE;
 }
 
@@ -634,17 +633,10 @@ static void dp_ini_bus_bandwidth(struct wlan_dp_psoc_cfg *config,
 static void dp_ini_tcp_settings(struct wlan_dp_psoc_cfg *config,
 				struct wlan_objmgr_psoc *psoc)
 {
-	uint32_t adv_win_scl_bit_set;
-
 	config->enable_tcp_limit_output =
 		cfg_get(psoc, CFG_DP_ENABLE_TCP_LIMIT_OUTPUT);
-	adv_win_scl_bit_set = cfg_get(psoc, CFG_DP_ENABLE_TCP_ADV_WIN_SCALE);
-	if (DP_TCP_ADV_WIN_SCL_BIT & adv_win_scl_bit_set) {
-		config->enable_tcp_adv_win_scale = true;
-		if (DP_TCP_ADV_WIN_SCALE_DISC_LOW & adv_win_scl_bit_set)
-			config->tcp_adv_win_scl_disc_lvl_low = true;
-	}
-
+	config->enable_tcp_adv_win_scale =
+		cfg_get(psoc, CFG_DP_ENABLE_TCP_ADV_WIN_SCALE);
 	config->enable_tcp_delack =
 		cfg_get(psoc, CFG_DP_ENABLE_TCP_DELACK);
 	config->tcp_delack_thres_high =
@@ -755,26 +747,6 @@ dp_nud_tracking_cfg_update(struct wlan_dp_psoc_cfg *config,
 static void
 dp_nud_tracking_cfg_update(struct wlan_dp_psoc_cfg *config,
 			   struct wlan_objmgr_psoc *psoc)
-{
-}
-#endif
-
-#ifdef WLAN_HAPS_ENABLE
-/**
- * dp_haps_cfg_update() - initialize HAPS config
- * @config : Configuration parameters
- * @psoc: psoc handle
- */
-static void
-dp_haps_cfg_update(struct wlan_dp_psoc_cfg *config,
-		   struct wlan_objmgr_psoc *psoc)
-{
-	config->haps_config = cfg_get(psoc, CFG_HAPS_CONFIG);
-}
-#else
-static void
-dp_haps_cfg_update(struct wlan_dp_psoc_cfg *config,
-		   struct wlan_objmgr_psoc *psoc)
 {
 }
 #endif
@@ -951,9 +923,6 @@ static void dp_cfg_init(struct wlan_dp_psoc_context *ctx)
 	dp_fisa_cfg_init(config, psoc);
 	dp_direct_link_cfg_init(config, psoc);
 	wlan_dp_stc_cfg_init(config, psoc);
-
-	config->dp_irq_affinity_mask = cfg_get(psoc, CFG_DP_IRQ_AFFINITY_MASK);
-	dp_haps_cfg_update(config, psoc);
 }
 
 /**
@@ -1456,8 +1425,6 @@ dp_vdev_obj_create_notification(struct wlan_objmgr_vdev *vdev, void *arg)
 		dp_flow_priortization_init(dp_intf);
 		wlan_dp_spm_intf_ctx_init(dp_intf);
 		dp_telemetry_init(dp_intf);
-		dp_vdev_haps_attach(wlan_psoc_get_dp_handle(psoc), dp_intf,
-				    vdev->vdev_objmgr.vdev_id);
 
 		if (dp_intf->device_mode == QDF_SAP_MODE ||
 		    dp_intf->device_mode == QDF_P2P_GO_MODE) {
@@ -1545,7 +1512,6 @@ dp_vdev_obj_destroy_notification(struct wlan_objmgr_vdev *vdev, void *arg)
 		 * link is deleted
 		 */
 		wlan_dp_spm_intf_ctx_deinit(dp_intf);
-		dp_vdev_haps_detach(dp_intf);
 		dp_flow_priortization_deinit(dp_intf);
 		dp_telemetry_deinit(dp_intf);
 		dp_nud_ignore_tracking(dp_intf, true);
@@ -1641,8 +1607,7 @@ dp_pdev_obj_create_notification(struct wlan_objmgr_pdev *pdev, void *arg)
 	 * 2) FISA will not start before pdev create, so its safe to attach
 	 * STC after FISA, though there is a dependency on FISA.
 	 */
-	if (QDF_IS_STATUS_ERROR(wlan_dp_stc_attach(dp_ctx)))
-		wlan_dp_spm_flow_table_detach(dp_ctx);
+	wlan_dp_stc_attach(dp_ctx);
 
 	return status;
 }

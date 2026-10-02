@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2012-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+ * Copyright (c) 2021-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -109,27 +109,11 @@ QDF_STATUS cm_fw_roam_sync_req(struct wlan_objmgr_psoc *psoc, uint8_t vdev_id,
 		return QDF_STATUS_E_NULL_VALUE;
 	}
 
-	if (cm_is_vdev_disconnecting(vdev) ||
-	    mlo_is_any_link_disconnecting(vdev)) {
-		/*
-		 * If the VDEV is disconnecting, then:
-		 * - If the disconnect SER is active, then RSO STOP would have
-		 *   already been sent from disconnect context.
-		 * - If the ROAM SER is active, then disconnect context would
-		 *   send the RSO STOP once activated.
-		 *
-		 * Therefore, do not send RSO STOP from roam context and let
-		 * the disconnect context handle the cleanup gracefully.
-		 */
-		mlme_err("Roam sync for vdev %d is not handled, since vdev is disconnecting",
-			 vdev_id);
-		wlan_objmgr_vdev_release_ref(vdev, WLAN_MLME_SB_ID);
-		return QDF_STATUS_E_INVAL;
-	}
-
-	if (mlo_is_mld_connecting(vdev) || cm_is_vdev_connecting(vdev) ||
+	if (mlo_is_mld_disconnecting_connecting(vdev) ||
+	    cm_is_vdev_connecting(vdev) ||
+	    cm_is_vdev_disconnecting(vdev) ||
 	    cm_is_peer_preset_on_other_sta(psoc, vdev, vdev_id, event)) {
-		mlme_err("vdev %d Roam sync not handled in connecting state",
+		mlme_err("vdev %d Roam sync not handled in connecting/disconnecting state",
 			 vdev_id);
 		wlan_cm_roam_state_change(wlan_vdev_get_pdev(vdev),
 					  vdev_id,
@@ -1169,7 +1153,8 @@ cm_fw_roam_sync_propagation(struct wlan_objmgr_psoc *psoc, uint8_t vdev_id,
 	struct wlan_cm_connect_resp *connect_rsp;
 	bool eht_capab = false;
 	struct pe_session *session;
-	struct mac_context *mac_ctx = cds_get_context(QDF_MODULE_ID_PE);
+	struct mac_context *mac_ctx =
+			cds_get_context(QDF_MODULE_ID_PE);
 
 	vdev = wlan_objmgr_get_vdev_by_id_from_psoc(psoc, vdev_id,
 						    WLAN_MLME_SB_ID);
@@ -1248,6 +1233,7 @@ cm_fw_roam_sync_propagation(struct wlan_objmgr_psoc *psoc, uint8_t vdev_id,
 	 */
 	policy_mgr_move_vdev_from_disabled_to_connection_tbl(psoc, vdev_id);
 	cm_mlo_roam_copy_partner_info(connect_rsp, roam_synch_data);
+	mlo_roam_init_cu_bpcc(vdev, roam_synch_data);
 	mlo_roam_set_link_id(vdev, roam_synch_data);
 
 	/**
@@ -1381,8 +1367,6 @@ QDF_STATUS cm_fw_roam_complete(struct cnx_mgr *cm_ctx, void *data)
 	struct wlan_objmgr_psoc *psoc;
 	QDF_STATUS status = QDF_STATUS_SUCCESS;
 	uint8_t vdev_id;
-	uint8_t rso_stop_req_bitmap;
-	enum roam_offload_state rso_cmd = WLAN_ROAM_RSO_ENABLED;
 
 	roam_synch_data = (struct roam_offload_synch_ind *)data;
 	vdev_id = wlan_vdev_get_id(cm_ctx->vdev);
@@ -1436,7 +1420,7 @@ QDF_STATUS cm_fw_roam_complete(struct cnx_mgr *cm_ctx, void *data)
 		status = policy_mgr_update_connection_info(psoc, vdev_id);
 		if (status == QDF_STATUS_NOT_INITIALIZED)
 			policy_mgr_incr_active_session(psoc, QDF_STA_MODE,
-						       vdev_id, true);
+						       vdev_id);
 	}
 
 	/* Check if FW as indicated this link as disabled */
@@ -1488,20 +1472,18 @@ QDF_STATUS cm_fw_roam_complete(struct cnx_mgr *cm_ctx, void *data)
 
 	wlan_cm_handle_sta_sta_roaming_enablement(psoc, vdev_id);
 
-	if (wlan_vdev_mlme_is_mlo_link_vdev(cm_ctx->vdev))
+	if (wlan_vdev_mlme_is_mlo_link_vdev(cm_ctx->vdev)) {
 		status = wlan_cm_roam_state_change(pdev,
 						   vdev_id,
 						   WLAN_ROAM_DEINIT,
 						   REASON_ROAM_HANDOFF_DONE);
+	}
 
-	if (roam_synch_data->auth_status == ROAM_AUTH_STATUS_AUTHENTICATED) {
-		if (policy_mgr_is_chan_switch_in_progress(psoc) ||
-		    policy_mgr_is_conc_sap_ready_for_mcc_to_scc_trans(psoc))
-			rso_cmd = WLAN_ROAM_RSO_STOPPED;
-
+	if (roam_synch_data->auth_status == ROAM_AUTH_STATUS_AUTHENTICATED)
 		wlan_cm_roam_state_change(pdev, vdev_id,
-					  rso_cmd, REASON_CONNECT);
-	} else
+					  WLAN_ROAM_RSO_ENABLED,
+					  REASON_CONNECT);
+	else
 		/*
 		 * STA is just in associated state here, RSO
 		 * enable will be sent once EAP & EAPOL will be done by
@@ -1519,16 +1501,6 @@ QDF_STATUS cm_fw_roam_complete(struct cnx_mgr *cm_ctx, void *data)
 					  REASON_DISCONNECTED);
 	policy_mgr_check_concurrent_intf_and_restart_sap(psoc,
 			wlan_util_vdev_mgr_get_acs_mode_for_vdev(cm_ctx->vdev));
-
-	rso_stop_req_bitmap =
-		mlme_get_rso_pending_disable_req_bitmap(psoc, vdev_id);
-	if (rso_stop_req_bitmap) {
-		mlme_clear_rso_pending_disable_req_bitmap(psoc,
-							  vdev_id);
-		wlan_cm_disable_rso(pdev, vdev_id, rso_stop_req_bitmap,
-				    REASON_DRIVER_DISABLED);
-	}
-
 end:
 	return status;
 }
@@ -1860,26 +1832,4 @@ QDF_STATUS wlan_cm_free_roam_synch_frame_ind(struct rso_config *rso_cfg)
 	}
 
 	return QDF_STATUS_SUCCESS;
-}
-
-void cm_update_ext_cap_ie_at_source(struct wlan_objmgr_psoc *psoc,
-				    struct element_info *assoc_ie)
-{
-	struct wmi_unified *wmi_handle = get_wmi_unified_hdl_from_psoc(psoc);
-	const uint8_t *ext_cap_ie;
-	struct s_ext_cap *extcap;
-
-	if (!wmi_handle)
-		return;
-
-	if (!wmi_service_enabled(wmi_handle, wmi_service_infra_mbssid))
-		return;
-
-	ext_cap_ie  = wlan_get_ie_ptr_from_eid(WLAN_ELEMID_XCAPS,
-					       assoc_ie->ptr, assoc_ie->len);
-	if (!ext_cap_ie)
-		return;
-
-	extcap = (struct s_ext_cap *)&ext_cap_ie[2];
-	extcap->multi_bssid = 1;
 }

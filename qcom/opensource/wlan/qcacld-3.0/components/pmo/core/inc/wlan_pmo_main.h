@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2017-2019 The Linux Foundation. All rights reserved.
- * Copyright (c) 2023-2025 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2023-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -47,8 +47,6 @@
 	QDF_TRACE_INFO_NO_FL(QDF_MODULE_ID_PMO, params)
 #define pmo_nofl_debug(params...) \
 	QDF_TRACE_DEBUG_NO_FL(QDF_MODULE_ID_PMO, params)
-
-#define pmo_debug_rl(params...) QDF_TRACE_DEBUG_RL(QDF_MODULE_ID_PMO, params)
 
 #define pmo_enter() QDF_TRACE_ENTER(QDF_MODULE_ID_PMO, "enter")
 #define pmo_exit() QDF_TRACE_EXIT(QDF_MODULE_ID_PMO, "exit")
@@ -387,15 +385,6 @@ pmo_intersect_packet_filter(struct pmo_psoc_priv_obj *psoc_ctx)
 		psoc_ctx->caps.packet_filter;
 }
 
-/**
- * pmo_rate_limit_needed() - check allow or not to set mc addr list
- * wmi cmd to fw based on pending cmds
- * @psoc: objmgr psoc
- *
- * Return: bool
- */
-bool pmo_rate_limit_needed(struct wlan_objmgr_psoc *psoc);
-
 /*
  * pmo_host_action_on_page_fault() - Returns action host will take on page fault
  * @psoc: PSOC object manager pointer.
@@ -484,20 +473,4 @@ QDF_STATUS pmo_set_vdev_bridge_addr(struct wlan_objmgr_vdev *vdev,
 QDF_STATUS pmo_core_get_listen_interval(struct wlan_objmgr_vdev *vdev,
 					uint32_t *listen_interval);
 
-#ifdef FEATURE_WLAN_APF
-/**
- * pmo_core_is_configure_apf_per_screen_state() - To get configure APF
- * per screen state
- * @psoc: objmgr psoc handle
- *
- * Return: true if enabled, else false
- */
-static inline bool
-pmo_core_is_configure_apf_per_screen_state(struct wlan_objmgr_psoc *psoc)
-{
-	struct pmo_psoc_priv_obj *pmo_psoc_ctx = pmo_psoc_get_priv(psoc);
-
-	return pmo_psoc_ctx->psoc_cfg.is_apf_configure_per_screen_state;
-}
-#endif
 #endif /* end  of _WLAN_PMO_MAIN_H_ */

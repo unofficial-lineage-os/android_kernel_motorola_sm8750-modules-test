@@ -6,9 +6,6 @@ else
 	KERNEL_BUILD := n
 endif
 
-# Force user build
-TARGET_BUILD_VARIANT := user
-
 ifeq ($(KERNEL_BUILD), y)
 	# These are provided in external module based builds
 	# Need to explicitly define for Kernel-based builds
@@ -27,7 +24,7 @@ WLAN_PROFILE ?= default
 CONFIG_QCA_CLD_WLAN_PROFILE ?= $(WLAN_PROFILE)
 DEVNAME ?= wlan
 WLAN_PLATFORM_INC ?= $(WLAN_ROOT)/../platform/inc
-DATA_IPA_INC ?= $(WLAN_ROOT)/../../dataipa/drivers/platform/msm/include
+DATA_IPA_INC ?= $(WLAN_ROOT)/../dataipa/drivers/platform/msm/include
 DATA_IPA_UAPI_INC ?= $(DATA_IPA_INC)/uapi
 
 ifeq ($(KERNEL_BUILD), n)
@@ -45,13 +42,6 @@ else ifneq ($(LINUX_BUILD_TOP),)
       override WLAN_FW_API := $(WLAN_ROOT)/../fw-api
 endif
 endif
-
-WLAN_PLATFORM_ROOT := $(WLAN_ROOT)/../platform
-include \
-	$(WLAN_PLATFORM_ROOT)/cnss2/sun_gki_defconfig \
-	$(WLAN_PLATFORM_ROOT)/cnss_genl/sun_gki_defconfig \
-	$(WLAN_PLATFORM_ROOT)/cnss_prealloc/sun_gki_defconfig \
-	$(WLAN_PLATFORM_ROOT)/cnss_utils/sun_gki_defconfig \
 
 include $(WLAN_ROOT)/configs/$(CONFIG_QCA_CLD_WLAN_PROFILE)_defconfig
 
@@ -1001,7 +991,7 @@ QDF_OBJS := \
 	$(QDF_OBJ_DIR)/qdf_talloc.o \
 	$(QDF_OBJ_DIR)/qdf_types.o \
 
-ifneq (,$(filter y,$(CONFIG_DP_FEATURE_TX_PAGE_POOL) $(CONFIG_DP_FEATURE_RX_BUFFER_RECYCLE)))
+ifeq ($(CONFIG_DP_FEATURE_RX_BUFFER_RECYCLE), y)
 QDF_OBJS += $(QDF_LINUX_OBJ_DIR)/qdf_page_pool.o
 endif
 
@@ -1291,7 +1281,7 @@ FTM_OBJS := $(FTM_DISP_SRC)/wlan_ftm_init_deinit.o \
 	    $(FTM_CORE_SRC)/wlan_ftm_svc.o \
 	    $(TARGET_IF_FTM_SRC)/target_if_ftm.o
 
-ifeq ($(CONFIG_QCA_WIFI_FTM_NL80211), y)
+ifeq ($(QCA_WIFI_FTM_NL80211), y)
 FTM_OBJS += $(OS_IF_FTM_SRC)/wlan_cfg80211_ftm.o
 endif
 
@@ -2259,7 +2249,7 @@ ifeq ($(CONFIG_WLAN_TX_FLOW_CONTROL_V2), y)
 DP_OBJS += $(DP_SRC)/dp_tx_flow_control.o
 endif
 
-ifneq (,$(filter y,$(CONFIG_WLAN_FEATURE_RX_BUFFER_POOL) $(CONFIG_DP_FEATURE_RX_BUFFER_RECYCLE)))
+ifeq ($(CONFIG_WLAN_FEATURE_RX_BUFFER_POOL), y)
 DP_OBJS += $(DP_SRC)/dp_rx_buffer_pool.o
 endif
 
@@ -2544,10 +2534,6 @@ CP_STATS_OBJS := $(CP_MC_STATS_COMPONENT_SRC)/wlan_cp_stats_mc_tgt_api.o	\
 		 $(WLAN_COMMON_ROOT)/target_if/cp_stats/src/target_if_cp_stats.o	\
 		 $(CP_STATS_DISPATCHER_SRC)/wlan_cp_stats_ucfg_api.o
 
-ifeq ($(CONFIG_WLAN_CHIPSET_STATS), y)
-CP_STATS_OBJS += $(CP_STATS_CORE_SRC)/wlan_cp_stats_chipset_stats.o
-ccflags-y += -DWLAN_CHIPSET_STATS
-endif
 endif
 
 $(call add-wlan-objs,cp_stats,$(CP_STATS_OBJS))
@@ -2668,6 +2654,7 @@ endif
 
 ifeq ($(CONFIG_WLAN_TELEMETRY), y)
 WLAN_DP_COMP_OBJS += $(DP_COMP_CORE_DIR)/wlan_dp_telemetry.o \
+		$(DP_COMP_UCFG_DIR)/wlan_dp_telemetry_api.o \
 		$(DP_COMP_UCFG_DIR)/wlan_dp_telemetry_ucfg_api.o
 endif
 
@@ -2743,10 +2730,6 @@ endif
 
 ifeq ($(CONFIG_WLAN_DP_DYNAMIC_RESOURCE_MGMT), y)
 WLAN_DP_COMP_OBJS += $(DP_COMP_CORE_DIR)/wlan_dp_resource_mgr.o
-endif
-
-ifeq ($(CONFIG_WLAN_HAPS_ENABLE), y)
-WLAN_DP_COMP_OBJS += $(DP_COMP_CORE_DIR)/wlan_dp_haps.o
 endif
 
 $(call add-wlan-objs,dp_comp,$(WLAN_DP_COMP_OBJS))
@@ -3457,9 +3440,6 @@ INCS +=		$(COAP_WMI_INC)
 ccflags-y += $(INCS)
 
 ccflags-y += -include $(WLAN_ROOT)/configs/default_config.h
-ccflags-y += -include $(WLAN_ROOT)/../../dataipa/config/dataipa_vendor.h
-
-ccflags-y += -D__ANDROID_COMMON_KERNEL__
 
 # CFG80211_MLO_KEY_OPERATION_SUPPORT
 # Used to indicate the Linux Kernel contains support for ML key operation
@@ -3590,7 +3570,6 @@ ccflags-$(CONFIG_FEATURE_WLAN_WAPI) += -DFEATURE_WLAN_WAPI
 ccflags-$(CONFIG_FEATURE_WLAN_WAPI) += -DATH_SUPPORT_WAPI
 ccflags-$(CONFIG_SOFTAP_CHANNEL_RANGE) += -DSOFTAP_CHANNEL_RANGE
 ccflags-$(CONFIG_FEATURE_WLAN_SCAN_PNO) += -DFEATURE_WLAN_SCAN_PNO
-ccflags-$(CONFIG_FEATURE_WLAN_ZERO_POWER_SCAN) += -DFEATURE_WLAN_ZERO_POWER_SCAN
 ccflags-$(CONFIG_WLAN_FEATURE_PACKET_FILTERING) += -DWLAN_FEATURE_PACKET_FILTERING
 ccflags-$(CONFIG_DHCP_SERVER_OFFLOAD) += -DDHCP_SERVER_OFFLOAD
 ccflags-$(CONFIG_WLAN_NS_OFFLOAD) += -DWLAN_NS_OFFLOAD
@@ -3736,7 +3715,6 @@ endif
 
 #Enable NL80211 test mode
 ccflags-$(CONFIG_NL80211_TESTMODE) += -DWLAN_NL80211_TESTMODE
-ccflags-$(CONFIG_NL80211_TESTMODE) += -DCONFIG_NL80211_TESTMODE
 
 # Flag to enable bus auto suspend
 ifeq ($(CONFIG_BUS_AUTO_SUSPEND), y)
@@ -3835,9 +3813,7 @@ ccflags-$(CONFIG_WLAN_SYSFS_HE_BSS_COLOR) += -DWLAN_SYSFS_HE_BSS_COLOR
 ccflags-$(CONFIG_WLAN_SYSFS_STA_INFO) += -DWLAN_SYSFS_STA_INFO
 ccflags-$(CONFIG_WLAN_DL_MODES) += -DCONFIG_WLAN_DL_MODES
 ccflags-$(CONFIG_WLAN_THERMAL_MULTI_CLIENT_SUPPORT) += -DFEATURE_WPSS_THERMAL_MITIGATION
-ccflags-$(CONFIG_WLAN_DDR_BW_MITIGATION) += -DWLAN_DDR_BW_MITIGATION
 ccflags-$(CONFIG_WLAN_DUMP_IN_PROGRESS) += -DCONFIG_WLAN_DUMP_IN_PROGRESS
-ccflags-$(CONFIG_WLAN_CHIPSET_LOG_MAX_SIZE) += -DWLAN_CHIPSET_LOG_MAX_SIZE=50
 ccflags-$(CONFIG_WLAN_BMISS) += -DCONFIG_WLAN_BMISS
 ccflags-$(CONFIG_WLAN_SYSFS_DP_STATS) += -DWLAN_SYSFS_DP_STATS
 ccflags-$(CONFIG_WLAN_FREQ_LIST) += -DCONFIG_WLAN_FREQ_LIST
@@ -3967,9 +3943,9 @@ ccflags-$(CONFIG_DEBUG_RX_RING_BUFFER) += -DDEBUG_RX_RING_BUFFER
 
 ccflags-$(CONFIG_DESC_TIMESTAMP_DEBUG_INFO) += -DDESC_TIMESTAMP_DEBUG_INFO
 
-ccflags-$(CONFIG_PANIC_ON_BUG) += -DPANIC_ON_BUG
+ccflags-$(PANIC_ON_BUG) += -DPANIC_ON_BUG
 
-ccflags-$(CONFIG_WLAN_WARN_ON_ASSERT) += -DWLAN_WARN_ON_ASSERT
+ccflags-$(WLAN_WARN_ON_ASSERT) += -DWLAN_WARN_ON_ASSERT
 
 ccflags-$(CONFIG_POWER_MANAGEMENT_OFFLOAD) += -DWLAN_POWER_MANAGEMENT_OFFLOAD
 
@@ -3980,7 +3956,7 @@ ccflags-$(CONFIG_WLAN_LOG_INFO) += -DWLAN_LOG_INFO
 ccflags-$(CONFIG_WLAN_LOG_DEBUG) += -DWLAN_LOG_DEBUG
 ccflags-$(CONFIG_WLAN_LOG_ENTER) += -DWLAN_LOG_ENTER
 ccflags-$(CONFIG_WLAN_LOG_EXIT) += -DWLAN_LOG_EXIT
-ccflags-$(CONFIG_WLAN_OPEN_SOURCE) += -DWLAN_OPEN_SOURCE
+ccflags-$(WLAN_OPEN_SOURCE) += -DWLAN_OPEN_SOURCE
 ccflags-$(CONFIG_FEATURE_STATS_EXT) += -DWLAN_FEATURE_STATS_EXT
 ccflags-$(CONFIG_QCACLD_FEATURE_NAN) += -DWLAN_FEATURE_NAN
 ccflags-$(CONFIG_QCACLD_FEATURE_SON) += -DWLAN_FEATURE_SON
@@ -4028,7 +4004,7 @@ ccflags-$(CONFIG_REMOVE_PKT_LOG) += -DREMOVE_PKT_LOG
 ccflags-$(CONFIG_ATH_11AC_TXCOMPACT) += -DATH_11AC_TXCOMPACT
 
 #ENABLE HTT HTC tx completion
-ccflags-$(CONFIG_ENABLE_CE4_COMP_DISABLE_HTT_HTC_MISC_LIST) += -DENABLE_CE4_COMP_DISABLE_HTT_HTC_MISC_LIST
+ccflags-$(ENABLE_CE4_COMP_DISABLE_HTT_HTC_MISC_LIST) += -DENABLE_CE4_COMP_DISABLE_HTT_HTC_MISC_LIST
 
 #Enable PCI specific APIS (dma, etc)
 ccflags-$(CONFIG_HIF_PCI) += -DHIF_PCI
@@ -4162,7 +4138,6 @@ ifeq ($(CONFIG_IPA_OPT_WIFI_DP), y)
 ifeq ($(CONFIG_IPA_OFFLOAD), y)
 ccflags-$(CONFIG_IPA_OPT_WIFI_DP) += -DIPA_OPT_WIFI_DP
 endif
-ccflags-$(CONFIG_IPA_OPT_WIFI_DP_CTRL) += -DIPA_OPT_WIFI_DP_CTRL
 endif
 
 ccflags-$(CONFIG_WDI3_IPA_OVER_GSI) += -DIPA_WDI3_GSI
@@ -4577,11 +4552,6 @@ ifeq ($(CONFIG_ANI_LEVEL_REQUEST), y)
 ccflags-y += -DFEATURE_ANI_LEVEL_REQUEST
 endif
 
-ifeq ($(CONFIG_DP_FEATURE_TX_PAGE_POOL), y)
-ccflags-y += -DDP_FEATURE_TX_PAGE_POOL
-ccflags-y += -DWLAN_DP_ENABLE_SW_TSO
-endif
-
 #Flags to enable/disable WMI APIs
 ccflags-$(CONFIG_WMI_ROAM_SUPPORT) += -DWMI_ROAM_SUPPORT
 ccflags-$(CONFIG_WMI_CONCURRENCY_SUPPORT) += -DWMI_CONCURRENCY_SUPPORT
@@ -4594,6 +4564,8 @@ endif
 ccflags-$(CONFIG_WLAN_HANG_EVENT) += -DHIF_CE_LOG_INFO
 ccflags-$(CONFIG_WLAN_HANG_EVENT) += -DHIF_BUS_LOG_INFO
 ccflags-$(CONFIG_WLAN_HANG_EVENT) += -DDP_SUPPORT_RECOVERY_NOTIFY
+
+cppflags-y += -DMOTO_UTAGS_MAC
 
 ccflags-$(CONFIG_ENABLE_SIZE_OPTIMIZE) += -Os
 
@@ -5051,7 +5023,6 @@ ccflags-$(CONFIG_FEATURE_ENABLE_CE_DP_IRQ_AFFINE) += -DFEATURE_ENABLE_CE_DP_IRQ_
 ccflags-$(CONFIG_WLAN_SUPPORT_SERVICE_CLASS) += -DWLAN_SUPPORT_SERVICE_CLASS
 ccflags-$(CONFIG_WLAN_SUPPORT_FLOW_PRIORTIZATION) += -DWLAN_SUPPORT_FLOW_PRIORTIZATION
 ccflags-$(CONFIG_WLAN_SUPPORT_LAPB) += -DWLAN_SUPPORT_LAPB
-ccflags-$(CONFIG_WLAN_HAPS_ENABLE) += -DWLAN_HAPS_ENABLE
 found = $(shell if grep -qF "walt_get_cpus_taken" $(srctree)/kernel/sched/walt/walt.c; then echo "yes" ;else echo "no" ;fi;)
 ifeq ($(findstring yes, $(found)), yes)
 ccflags-y += -DWALT_GET_CPU_TAKEN_SUPPORT
@@ -5162,9 +5133,6 @@ ccflags-$(CONFIG_CNSS2_SSR_DRIVER_DUMP) += -DWLAN_FEATURE_SSR_DRIVER_DUMP
 ccflags-$(CONFIG_FEATURE_SMEM_MAILBOX) += -DFEATURE_SMEM_MAILBOX
 ccflags-$(CONFIG_FEATURE_SMEM_MAILBOX) += -DCONFIG_FEATURE_SMEM_MAILBOX
 
-# CPU Boosting for roaming
-ccflags-$(CONFIG_WLAN_BOOST_CPU_FREQ_IN_ROAM) += -DWLAN_BOOST_CPU_FREQ_IN_ROAM
-
 # Currently, for versions of gcc which support it, the kernel Makefile
 # is disabling the maybe-uninitialized warning.  Re-enable it for the
 # WLAN driver.  Note that we must use ccflags-y here so that it
@@ -5200,9 +5168,20 @@ endif
 # driver attached. Moreover, as the first priority, host driver will only
 # append DYNAMIC_SINGLE_CHIP to the path of firmware/mac/ini file.
 
-ifneq ($(CONFIG_MULTI_IF_NAME),)
-ccflags-y += -DMULTI_IF_NAME=\"$(CONFIG_MULTI_IF_NAME)\"
+ifneq ($(DYNAMIC_SINGLE_CHIP),)
+ccflags-y += -DDYNAMIC_SINGLE_CHIP=\"$(DYNAMIC_SINGLE_CHIP)\"
+ifneq ($(MULTI_IF_NAME),)
+ccflags-y += -DMULTI_IF_NAME=\"$(MULTI_IF_NAME)\"
 endif
+#
+else
+
+ifneq ($(MODNAME), wlan)
+CHIP_NAME ?= $(MODNAME)
+ccflags-y += -DMULTI_IF_NAME=\"$(CHIP_NAME)\"
+endif
+
+endif #DYNAMIC_SINGLE_CHIP
 
 # WLAN_HDD_ADAPTER_MAGIC must be unique for all instances of the driver on the
 # system. If it is not defined, then the host driver will use the first 4
@@ -5220,11 +5199,9 @@ else
 endif
 
 # Android wifi state control interface
-ifneq ($(CONFIG_WLAN_CTRL_NAME),)
-ccflags-y += -DWLAN_CTRL_NAME=\"$(CONFIG_WLAN_CTRL_NAME)\"
+ifneq ($(WLAN_CTRL_NAME),)
+ccflags-y += -DWLAN_CTRL_NAME=\"$(WLAN_CTRL_NAME)\"
 endif
-
-ccflags-$(CONFIG_CFG80211_PROP_MULTI_LINK_SUPPORT) += -DCFG80211_PROP_MULTI_LINK_SUPPORT
 
 # inject some build related information
 ifeq ($(CONFIG_BUILD_TAG), y)
@@ -5248,18 +5225,6 @@ endif
 ifeq ($(CONFIG_ARCH_PINEAPPLE), y)
 ccflags-y += -gdwarf-4
 endif
-
-ccflags-$(CONFIG_CNSS_PEACH_V2) += -DQCA_WIFI_PEACH_V2
-ccflags-$(CONFIG_TX_NSS_STATS_SUPPORT) += -DTX_NSS_STATS_SUPPORT
-ccflags-$(CONFIG_FEATURE_ML_LOCAL_PKT_CAPTURE) += -DFEATURE_ML_LOCAL_PKT_CAPTURE
-ccflags-$(CONFIG_FEATURE_DIRECT_LINK) += -DFEATURE_DIRECT_LINK
-ccflags-$(CONFIG_WLAN_FEATURE_UL_JITTER) += -DWLAN_FEATURE_UL_JITTER
-ccflags-$(CONFIG_CFG80211_EXTERNAL_AUTH_MLO_SUPPORT) += -DCFG80211_EXTERNAL_AUTH_MLO_SUPPORT
-ccflags-$(CONFIG_CFG80211_EXT_FEATURE_SECURE_NAN) += -DCFG80211_EXT_FEATURE_SECURE_NAN
-ccflags-$(CONFIG_CFG80211_MLD_AP_STA_CONNECT_UPSTREAM_SUPPORT) += -DCFG80211_MLD_AP_STA_CONNECT_UPSTREAM_SUPPORT
-ccflags-$(CONFIG_WALT_GET_CPU_TAKEN_SUPPORT) += -DWALT_GET_CPU_TAKEN_SUPPORT
-ccflags-$(CONFIG_FEATURE_EPM) += -DFEATURE_EPM
-ccflags-$(CONFIG_WLAN_CHIPSET_LOG_MAX_SIZE) += -DWLAN_CHIPSET_LOG_MAX_SIZE=50
 
 # Module information used by KBuild framework
 obj-$(CONFIG_QCA_CLD_WLAN) += $(MODNAME).o

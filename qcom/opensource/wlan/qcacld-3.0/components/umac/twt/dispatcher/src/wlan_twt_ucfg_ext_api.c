@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2022-2025 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -51,12 +51,6 @@ QDF_STATUS
 ucfg_twt_cfg_set_responder(struct wlan_objmgr_psoc *psoc, bool val)
 {
 	return wlan_twt_cfg_set_responder(psoc, val);
-}
-
-QDF_STATUS
-ucfg_twt_cfg_reset_responder(struct wlan_objmgr_psoc *psoc)
-{
-	return wlan_twt_cfg_reset_responder(psoc);
 }
 
 QDF_STATUS
@@ -273,18 +267,4 @@ void
 ucfg_twt_reset_requestor_enable_cmd_in_progress(struct wlan_objmgr_psoc *psoc)
 {
 	return wlan_twt_reset_requestor_enable_cmd_in_progress(psoc);
-}
-
-QDF_STATUS
-ucfg_twt_tgt_caps_get_wake_dur_and_wake_intvl(
-				struct wlan_objmgr_psoc *psoc,
-				uint32_t *min_wake_dur,
-				uint32_t *max_wake_dur,
-				uint32_t *min_wake_intvl,
-				uint32_t *max_wake_intvl)
-{
-	return wlan_twt_tgt_caps_get_wake_dur_and_wake_intvl(psoc, min_wake_dur,
-							     max_wake_dur,
-							     min_wake_intvl,
-							     max_wake_intvl);
 }

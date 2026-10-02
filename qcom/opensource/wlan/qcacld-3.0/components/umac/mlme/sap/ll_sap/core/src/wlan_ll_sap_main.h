@@ -1,5 +1,5 @@
 /*
- * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+ * Copyright (c) 2023-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -113,15 +113,11 @@ struct ll_sap_vdev_peer_entry {
  * @bearer_switch_ctx: Bearer switch context
  * @high_ap_availability_cookie: High AP availability cookie
  * @target_tsf: pointer to target_tsf structure
- * @cur_freq_unused_cu: current freq and unused channel utilization
- * @start_bss_in_progress: flag to indicate start bss process is in progress
  */
 struct ll_sap_vdev_priv_obj {
 	struct bearer_switch_info *bearer_switch_ctx;
 	uint16_t high_ap_availability_cookie[MAX_HIGH_AP_AVAILABILITY_REQUESTS];
 	struct target_tsf target_tsf;
-	uint32_t cur_freq_unused_cu;
-	bool start_bss_in_progress;
 };
 
 /**
@@ -145,101 +141,6 @@ struct ll_sap_vdev_priv_obj *ll_sap_get_vdev_priv_obj(
 
 	return obj;
 }
-
-/**
- * ll_sap_get_cur_freq_unused_cu() - return cur_freq_unused_cu
- * @psoc: psoc pointer
- * @vdev_id: vdev_id
- *
- * Return: cur_freq_unused_cu
- */
-static inline
-uint32_t ll_sap_get_cur_freq_unused_cu(struct wlan_objmgr_psoc *psoc,
-				       uint8_t vdev_id)
-{
-	struct ll_sap_vdev_priv_obj *obj = NULL;
-	uint32_t unused_cu = 0;
-	struct wlan_objmgr_vdev *vdev;
-
-	vdev = wlan_objmgr_get_vdev_by_id_from_psoc(psoc, vdev_id,
-						    WLAN_LL_SAP_ID);
-	if (!vdev) {
-		ll_sap_err("vdev %d is null", vdev_id);
-		return unused_cu;
-	}
-	obj = ll_sap_get_vdev_priv_obj(vdev);
-	if (!obj) {
-		ll_sap_err("ll_sap obj null ref by vdev: %u", vdev_id);
-		wlan_objmgr_vdev_release_ref(vdev, WLAN_LL_SAP_ID);
-		return unused_cu;
-	}
-	unused_cu = obj->cur_freq_unused_cu;
-	wlan_objmgr_vdev_release_ref(vdev, WLAN_LL_SAP_ID);
-
-	return unused_cu;
-}
-
-/**
- * ll_sap_set_cur_freq_unused_cu() - initializes cur_freq_unused_cu
- * @psoc: psoc pointer
- * @vdev_id: vdev_id
- * @unused_cu: unused channel Utilization
- *
- * Return: QDF status
- */
-static inline
-QDF_STATUS ll_sap_set_cur_freq_unused_cu(struct wlan_objmgr_psoc *psoc,
-					 uint8_t vdev_id,
-					 uint32_t unused_cu)
-{
-	struct ll_sap_vdev_priv_obj *obj = NULL;
-	struct wlan_objmgr_vdev *vdev;
-
-	vdev = wlan_objmgr_get_vdev_by_id_from_psoc(psoc, vdev_id,
-						    WLAN_LL_SAP_ID);
-	if (!vdev) {
-		ll_sap_err("vdev %d is null", vdev_id);
-		return unused_cu;
-	}
-
-	obj = ll_sap_get_vdev_priv_obj(vdev);
-	if (!obj) {
-		ll_sap_err("ll_sap obj null ref by vdev: %u", vdev_id);
-		wlan_objmgr_vdev_release_ref(vdev, WLAN_LL_SAP_ID);
-		return QDF_STATUS_E_INVAL;
-	}
-
-	obj->cur_freq_unused_cu = unused_cu;
-	ll_sap_debug("vdev %d set unused CU to %d", vdev_id, unused_cu);
-	wlan_objmgr_vdev_release_ref(vdev, WLAN_LL_SAP_ID);
-
-	return QDF_STATUS_SUCCESS;
-}
-
-/**
- * ll_sap_is_start_bss_in_progress() - Check if ll sap start is in progress
- * @psoc: psoc pointer
- * @vdev_id: vdev_id
- *
- * This function checks if the LL SAP start process is currently in progress for
- * the given vdev.
- *
- * Return: true if start BSS is in progress, false otherwise.
- */
-bool ll_sap_is_start_bss_in_progress(struct wlan_objmgr_psoc *psoc,
-				     uint8_t vdev_id);
-
-/**
- * ll_sap_set_start_bss_in_progress() - set ll sap start is in progress state
- * @psoc: psoc pointer
- * @vdev_id: vdev_id
- * @start_bss: start bss state
- *
- * Return: QDF_STATUS
- */
-QDF_STATUS ll_sap_set_start_bss_in_progress(struct wlan_objmgr_psoc *psoc,
-					    uint8_t vdev_id,
-					    bool start_bss);
 
 /**
  * ll_sap_init() - initializes ll_sap component

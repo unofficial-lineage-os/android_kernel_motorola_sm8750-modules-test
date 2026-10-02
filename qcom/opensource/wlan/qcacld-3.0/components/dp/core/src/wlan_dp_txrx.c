@@ -1,5 +1,5 @@
 /*
- * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+ * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -48,10 +48,6 @@
 		defined(CONFIG_BERYLLIUM) || \
 		defined(CONFIG_RHINE))
 #include <hif_napi.h>
-#endif
-
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(6, 15, 0))
-#include <net/gro.h>
 #endif
 
 uint32_t wlan_dp_intf_get_pkt_type_bitmap_value(void *link_ctx)
@@ -904,9 +900,6 @@ QDF_STATUS dp_mon_rx_packet_cbk(void *context, qdf_nbuf_t rxbuf)
 		 */
 		qdf_net_buf_debug_release_skb(nbuf);
 
-		/* Reset skb->mac_header field */
-		skb_reset_mac_header(nbuf);
-
 		/*
 		 * If this is not a last packet on the chain
 		 * Just put packet into backlog queue, not scheduling RX sirq
@@ -952,7 +945,6 @@ void dp_rx_monitor_callback(ol_osif_vdev_handle context,
 
 /**
  * dp_is_rx_wake_lock_needed() - check if wake lock is needed
- * @dp_intf: dp interface
  * @nbuf: pointer to sk_buff
  * @is_arp_req: ARP request packet
  *
@@ -962,12 +954,11 @@ void dp_rx_monitor_callback(ol_osif_vdev_handle context,
  *
  * Return: true if wake lock is needed or false otherwise.
  */
-static bool dp_is_rx_wake_lock_needed(struct wlan_dp_intf *dp_intf,
-				      qdf_nbuf_t nbuf, bool is_arp_req)
+static bool dp_is_rx_wake_lock_needed(qdf_nbuf_t nbuf, bool is_arp_req)
 {
 	/* Take wake lock for local ARP request packet */
 	if (qdf_unlikely(is_arp_req)) {
-		if (qdf_nbuf_is_arp_local(nbuf, dp_intf->ipv4_addr))
+		if (qdf_nbuf_is_arp_local(nbuf))
 			return true;
 	} else if (qdf_likely(!qdf_nbuf_pkt_type_is_mcast(nbuf) &&
 			      !qdf_nbuf_pkt_type_is_bcast(nbuf))) {
@@ -1927,9 +1918,7 @@ QDF_STATUS dp_rx_packet_cbk(void *dp_link_context,
 		if (!dp_is_current_high_throughput(dp_ctx) &&
 		    dp_ctx->dp_cfg.rx_wakelock_timeout &&
 		    dp_link->conn_info.is_authenticated && !is_ip_mcast)
-			wake_lock = dp_is_rx_wake_lock_needed(dp_intf,
-							      nbuf,
-							      is_arp_req);
+			wake_lock = dp_is_rx_wake_lock_needed(nbuf, is_arp_req);
 
 		if (wake_lock) {
 			cds_host_diag_log_work(&dp_ctx->rx_wake_lock,

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+ * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -85,7 +85,6 @@ struct dp_rtpm_tput_policy_context {
  * @enable_tcp_delack: enable Dynamic Configuration of Tcp Delayed Ack
  * @enable_tcp_limit_output: enable TCP limit output
  * @enable_tcp_adv_win_scale: enable  TCP adv window scaling
- * @tcp_adv_win_scl_disc_lvl_low: Set TCP adv win scale level LOW on disconnect
  * @tcp_delack_thres_high: High Threshold inorder to trigger TCP Del Ack
  * indication
  * @tcp_delack_thres_low: Low Threshold inorder to trigger TCP Del Ack
@@ -129,8 +128,6 @@ struct dp_rtpm_tput_policy_context {
  * @is_load_balance_enabled: indicates whether load balance is enabled or not
  * @is_flow_balance_enabled: indicates whether flow balance is enabled or not
  * @stc_enable: indicates whether STC feature is enabled or not
- * @dp_irq_affinity_mask: DP IRQ affinity mask (0 for disable)
- * @haps_config: Store the HAPS power save config
  */
 struct wlan_dp_psoc_cfg {
 	bool tx_orphan_enable;
@@ -157,7 +154,6 @@ struct wlan_dp_psoc_cfg {
 	uint32_t enable_tcp_delack;
 	bool     enable_tcp_limit_output;
 	uint32_t enable_tcp_adv_win_scale;
-	bool tcp_adv_win_scl_disc_lvl_low;
 	uint32_t tcp_delack_thres_high;
 	uint32_t tcp_delack_thres_low;
 	uint32_t tcp_tx_high_tput_thres;
@@ -215,10 +211,6 @@ struct wlan_dp_psoc_cfg {
 #endif
 #ifdef WLAN_DP_FEATURE_STC
 	bool stc_enable;
-#endif
-	uint32_t dp_irq_affinity_mask;
-#ifdef WLAN_HAPS_ENABLE
-	uint32_t haps_config;
 #endif
 };
 
@@ -574,8 +566,6 @@ struct fse_cache_flush_history {
  * @fst_update_work: FST CMEM update work
  * @fst_update_wq: FST CMEM update workqueue
  * @fst_update_list: List to post event to CMEM update work
- * @last_update_time_ns: last update time in nanoseconds
- * @update_count: counter used to limit the number of fst updates per second
  * @meta_counter:
  * @cmem_ba:
  * @dp_rx_sw_ft_lock: SW FST lock
@@ -613,8 +603,6 @@ struct dp_rx_fst {
 	qdf_work_t fst_update_work;
 	qdf_workqueue_t *fst_update_wq;
 	qdf_list_t fst_update_list;
-	uint64_t last_update_time_ns;
-	uint32_t update_count;
 	uint32_t meta_counter;
 	uint32_t cmem_ba;
 	qdf_spinlock_t dp_rx_sw_ft_lock[MAX_REO_DEST_RINGS];
@@ -693,8 +681,6 @@ struct dp_rx_fst {
  * @disable_rx_aggr: Disable Rx aggregation
  * @spm_intf_ctx: SPM interface context
  * @opm_stats_work: OPM stats work
- * @ipv4_addr: IPv4 address
- * @haps_ctx: HAPS context
  */
 struct wlan_dp_intf {
 	struct wlan_dp_psoc_context *dp_ctx;
@@ -784,10 +770,6 @@ struct wlan_dp_intf {
 #endif
 #if defined(WLAN_FEATURE_SAWFISH) || defined(WLAN_DP_FEATURE_STC)
 	struct qdf_periodic_work opm_stats_work;
-#endif
-	uint8_t ipv4_addr[QDF_IPV4_ADDR_SIZE];
-#ifdef WLAN_HAPS_ENABLE
-	struct dp_haps haps_ctx;
 #endif
 };
 

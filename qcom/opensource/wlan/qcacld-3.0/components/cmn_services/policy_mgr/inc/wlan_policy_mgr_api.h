@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2012-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+ * Copyright (c) 2021-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -759,18 +759,6 @@ bool policy_mgr_check_for_session_conc(struct wlan_objmgr_psoc *psoc,
 				       uint8_t vdev_id, uint32_t ch_freq);
 
 /**
- * policy_mgr_validate_sta_start() - Check if concurrency is
- * allowed for STA start
- * @vdev: vdev object information
- *
- * some platform STA+SAP+SAP not supported, add check STA starting
- * allowed or not based on PCL in 3 Vifs case.
- *
- * Return: True if the concurrency is allowed for STA start
- */
-bool policy_mgr_validate_sta_start(struct wlan_objmgr_vdev *vdev);
-
-/**
  * policy_mgr_handle_conc_multiport() - to handle multiport concurrency
  * @psoc: PSOC object information
  * @vdev_id: Vdev ID
@@ -790,24 +778,6 @@ policy_mgr_handle_conc_multiport(struct wlan_objmgr_psoc *psoc,
 				 enum policy_mgr_conn_update_reason reason,
 				 uint32_t request_id);
 
-/**
- * policy_mgr_is_sta_sap_mcc_weightage_required() - Check that STA+SAP MCC
- *                                                  weightage is required or
- *                                                  not
- * @psoc: Psoc ptr
- * @sta_pdev: Pdev
- * @sta_freq: STA freq
- *
- * This API will check that whether STA_SAP_MCC weightage need to consider in
- * best candidate selection or not. If STA and SAP is in MCC, those AP will get
- * less score.
- *
- * Return: True if STA_SAP_MCC weightage is required
- */
-bool
-policy_mgr_is_sta_sap_mcc_weightage_required(struct wlan_objmgr_psoc *psoc,
-					     struct wlan_objmgr_pdev *sta_pdev,
-					     uint32_t sta_freq);
 #ifdef FEATURE_WLAN_MCC_TO_SCC_SWITCH
 /**
  * policy_mgr_check_concurrent_intf_and_restart_sap() - Check
@@ -1198,8 +1168,6 @@ QDF_STATUS policy_mgr_set_pcl(struct wlan_objmgr_psoc *psoc,
  * @psoc: PSOC object information
  * @mode:	Adapter mode
  * @session_id: session ID for the connection session
- * @update_flow_pool_map: Is flow pool map update required. false for link
- * switch.
  *
  * This function increments the number of active sessions maintained per device
  * mode. In the case of STA/P2P CLI/IBSS upon connection indication it is
@@ -1208,8 +1176,7 @@ QDF_STATUS policy_mgr_set_pcl(struct wlan_objmgr_psoc *psoc,
  * Return: None
  */
 void policy_mgr_incr_active_session(struct wlan_objmgr_psoc *psoc,
-				    enum QDF_OPMODE mode, uint8_t session_id,
-				    bool update_flow_pool_map);
+		enum QDF_OPMODE mode, uint8_t session_id);
 
 /**
  * policy_mgr_decr_active_session() - decrements the number of active sessions
@@ -1542,21 +1509,6 @@ policy_mgr_is_emlsr_sta_concurrency_present(struct wlan_objmgr_psoc *psoc)
 #endif
 
 /**
- * policy_mgr_dfs_master_cfg_changed() - dfs master changed notify
- * event
- * @psoc: PSOC object information
- * @dfs_master_capable: dfs master enable or disable
- *
- * Change the "sta_sap_scc_on_dfs_chnl" flag as well when dfs master
- * capability is changed by vendor command.
- *
- * Return: void
- */
-void
-policy_mgr_dfs_master_cfg_changed(struct wlan_objmgr_psoc *psoc,
-				  bool dfs_master_capable);
-
-/**
  * policy_mgr_skip_dfs_ch() - skip dfs channel or not
  * @psoc: pointer to soc
  * @skip_dfs_channel: pointer to result
@@ -1726,19 +1678,6 @@ bool policy_mgr_allow_concurrency(struct wlan_objmgr_psoc *psoc,
 				  uint32_t ch_freq,
 				  enum hw_mode_bandwidth bw,
 				  uint32_t ext_flags, uint8_t vdev_id);
-
-/**
- * policy_mgr_if_freq_n_inactive_links_freq_same() - API to check if
- * the given freq and ML connection inactive/standby link are on same
- * @psoc: psoc
- * @freq: given freq to check
- *
- * Return: True if freq matches one of the ML connection inactive/standby
- * link freq
- */
-bool
-policy_mgr_if_freq_n_inactive_links_freq_same(struct wlan_objmgr_psoc *psoc,
-					      uint32_t freq);
 
 /**
  * policy_mgr_check_scc_channel() - Check if SAP/GO freq need to be updated
@@ -2340,7 +2279,6 @@ struct policy_mgr_sme_cbacks {
  * @wlan_get_sap_acs_band: get acs band from sap config
  * @wlan_check_cc_intf_cb: get interference frequency of input SAP/GO interface
  * @wlan_set_tx_rx_nss_cb: set NSS dynamically for STA
- * @hdd_get_sap_connected_sta_band: Get bands supported by connected STA to SAP
  */
 struct policy_mgr_hdd_cbacks {
 	QDF_STATUS (*sap_restart_chan_switch_cb)(struct wlan_objmgr_psoc *psoc,
@@ -2375,8 +2313,6 @@ struct policy_mgr_hdd_cbacks {
 	QDF_STATUS (*wlan_set_tx_rx_nss_cb)(struct wlan_objmgr_psoc *psoc,
 					    uint8_t vdev_id, uint8_t tx_nss,
 					    uint8_t rx_nss);
-	uint8_t (*hdd_get_sap_connected_sta_band)(struct wlan_objmgr_psoc *psoc,
-						  uint8_t vdev_id);
 };
 
 /**
@@ -3832,17 +3768,6 @@ void
 policy_mgr_check_sap_restart(struct wlan_objmgr_psoc *psoc, uint8_t vdev_id);
 
 /**
- * policy_mgr_trigger_roam_for_sta_sap_mcc_non_dbs() - Trigger roaming in
- * case of MCC for STA + SAP
- * @psoc: Pointer to soc
- *
- * Return: None
- */
-void
-policy_mgr_trigger_roam_for_sta_sap_mcc_non_dbs(struct wlan_objmgr_psoc *psoc);
-
-
-/**
  * policy_mgr_check_sta_ap_concurrent_ch_intf() - Restart SAP in STA-AP case
  * @data: Pointer to STA adapter
  *
@@ -4743,15 +4668,12 @@ bool policy_mgr_is_sap_restart_required_after_sta_disconnect(
  * STA
  * @psoc: pointer to psoc
  * @sap_ch_freq: operating channel frequency of SAP interface
- * @check_for_inactive_links: Check for SCC freq in inactive links for non DBS,
- * need to be set to true while selecting new channel not while checking for
- * existing channel.
  * This function checks whether SAP is doing SCC with STA
  *
  * Return: true or false
  */
 bool policy_mgr_is_sta_sap_scc(struct wlan_objmgr_psoc *psoc,
-			       uint32_t sap_ch_freq, bool check_for_inactive_links);
+			       uint32_t sap_ch_freq);
 
 /**
  * policy_mgr_nan_sap_scc_on_unsafe_ch_chk() - check whether SAP is doing SCC
@@ -6087,16 +6009,6 @@ policy_mgr_sap_on_non_psc_channel(struct wlan_objmgr_psoc *psoc,
 				  uint8_t sap_vdev_id);
 
 #ifdef WLAN_FEATURE_LL_LT_SAP
-/*
- * policy_mgr_is_6G_chan_valid_for_ll_sap() - check if 6 Ghz freq allowed for
- * ll lt SAP
- * @freq: freq
- *
- * Return: true if 6 Ghz freq is allowed for ll lt sap ie unii5.
- * Otherwise false.
- */
-bool policy_mgr_is_6G_chan_valid_for_ll_sap(qdf_freq_t freq);
-
 /**
  * policy_mgr_get_pcl_ch_list_for_ll_sap() - Get PCL channel list for LL_LT_SAP
  * @psoc: psoc object
@@ -6114,44 +6026,6 @@ QDF_STATUS policy_mgr_get_pcl_ch_list_for_ll_sap(
 					struct connection_info *info,
 					uint8_t *connection_count);
 #endif
-
-#ifdef WLAN_FEATURE_11BE_MLO
-/**
- * policy_mgr_get_inact_vdev_present_with_freq() - Get inactive VDEV ID present
- * with frequency
- * @psoc: PSOC object information
- * @freq: Frequency to check
- * @vdev_id: VDEV ID to check
- *
- * This function checks if there is an inactive VDEV ID present with the given
- * frequency.
- *
- * Return: VDEV ID if found, WLAN_UMAC_VDEV_ID_MAX otherwise
- */
-uint8_t
-policy_mgr_get_inact_vdev_present_with_freq(struct wlan_objmgr_psoc *psoc,
-					    qdf_freq_t freq, uint8_t vdev_id);
-#else
-static inline uint8_t
-policy_mgr_get_inact_vdev_present_with_freq(struct wlan_objmgr_psoc *psoc,
-					    qdf_freq_t freq, uint8_t vdev_id)
-{
-	return WLAN_UMAC_VDEV_ID_MAX;
-}
-#endif
-
-/**
- * policy_mgr_get_vdev_present_with_freq() - Check if any other  vdev present
- * with the given freq.
- * @psoc: pointer to psoc
- * @freq: given freq
- * @vdev_id: current vdev id.
- *
- * Return: vdev id of the scc vdev
- */
-uint8_t
-policy_mgr_get_vdev_present_with_freq(struct wlan_objmgr_psoc *psoc,
-				      qdf_freq_t freq, uint8_t vdev_id);
 
 /**
  * policy_mgr_mon_sbs_mac0_freq() - Check if the given frequency is
@@ -6233,37 +6107,4 @@ policy_mgr_is_3vifs_mcc_to_scc_enabled(struct wlan_objmgr_psoc *psoc)
 	return false;
 }
 #endif
-
-/**
- * policy_mgr_update_flow_pool_map() - Update flow pool map for the given vdev
- * @psoc: Pointer to PSOC object
- * @vdev: Pointer to object manager vdev
- *
- * Return: None
- */
-void policy_mgr_update_flow_pool_map(struct wlan_objmgr_psoc *psoc,
-				     struct wlan_objmgr_vdev *vdev);
-
-/**
- * policy_mgr_fetch_scc_vdev_id() - Fetch scc vdev id for specific connection
- * @psoc: Pointer to PSOC object
- * @vdev_id: vdev id for the specific connection
- * @freq: freq for the specific connection
- *
- * Return: scc vdev id of specific connection
- */
-uint8_t policy_mgr_fetch_scc_vdev_id(struct wlan_objmgr_psoc *psoc,
-				     uint8_t vdev_id, uint32_t freq);
-
-/**
- * policy_mgr_is_conc_sap_ready_for_mcc_to_scc_trans() - Check if SAP is going
- *							 to move from MCC to SCC
- * @psoc: Pointer to PSOC object
- *
- * Return: True if there is a SAP in MCC with STA and if it's going to move to
- *	   STA channel, i.e. SCC
- */
-bool
-policy_mgr_is_conc_sap_ready_for_mcc_to_scc_trans(
-	struct wlan_objmgr_psoc *psoc);
 #endif /* __WLAN_POLICY_MGR_API_H */

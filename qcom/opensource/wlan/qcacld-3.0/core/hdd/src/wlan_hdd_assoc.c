@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2012-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2025 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -188,7 +188,6 @@ static const int beacon_filter_table[] = {
 	WLAN_ELEMID_QUIET_CHANNEL,
 	WLAN_ELEMID_TWT,
 	WLAN_ELEMID_VHT_TX_PWR_ENVLP,
-	WLAN_ELEMID_VENDOR,
 };
 
 /*
@@ -680,38 +679,46 @@ bool hdd_is_any_cli_connected(struct hdd_context *hdd_ctx)
 	return QDF_IS_STATUS_ERROR(status) ? false : true;
 }
 
-int hdd_remove_beacon_filter(struct hdd_context *hdd_ctx, uint8_t vdev_id)
+/**
+ * hdd_remove_beacon_filter() - remove beacon filter
+ * @adapter: Pointer to the hdd adapter
+ *
+ * Return: 0 on success and errno on failure
+ */
+int hdd_remove_beacon_filter(struct hdd_adapter *adapter)
 {
 	QDF_STATUS status;
+	struct hdd_context *hdd_ctx = WLAN_HDD_GET_CTX(adapter);
 
-	status = sme_remove_beacon_filter(hdd_ctx->mac_handle, vdev_id);
-	if (QDF_IS_STATUS_ERROR(status)) {
-		hdd_err("vdev %d remove bcn filter failed %d", vdev_id, status);
+	status = sme_remove_beacon_filter(hdd_ctx->mac_handle,
+					  adapter->deflink->vdev_id);
+	if (!QDF_IS_STATUS_SUCCESS(status)) {
+		hdd_err("sme_remove_beacon_filter() failed");
 		return -EFAULT;
 	}
 
 	return 0;
 }
 
-#define MAX_IE_ID (WLAN_ELEMID_EXTN_ELEM + 1)
-int hdd_add_beacon_filter(struct hdd_context *hdd_ctx, uint8_t vdev_id)
+int hdd_add_beacon_filter(struct hdd_adapter *adapter)
 {
 	int i;
 	uint32_t ie_map[SIR_BCN_FLT_MAX_ELEMS_IE_LIST] = {0};
 	QDF_STATUS status;
+	struct hdd_context *hdd_ctx = WLAN_HDD_GET_CTX(adapter);
 
 	for (i = 0; i < ARRAY_SIZE(beacon_filter_table); i++)
 		qdf_set_bit(beacon_filter_table[i],
 			    (unsigned long *)ie_map);
 
 	for (i = 0; i < ARRAY_SIZE(beacon_filter_extn_table); i++)
-		qdf_set_bit(beacon_filter_extn_table[i] + MAX_IE_ID,
+		qdf_set_bit(beacon_filter_extn_table[i] + WLAN_ELEMID_EXTN_ELEM,
 			    (unsigned long *)ie_map);
 
 	status = sme_add_beacon_filter(hdd_ctx->mac_handle,
-				       vdev_id, ie_map);
-	if (QDF_IS_STATUS_ERROR(status)) {
-		hdd_err("vdev %d set bcn filter failed %d", vdev_id, status);
+				       adapter->deflink->vdev_id, ie_map);
+	if (!QDF_IS_STATUS_SUCCESS(status)) {
+		hdd_err("sme_add_beacon_filter() failed");
 		return -EFAULT;
 	}
 	return 0;
@@ -1624,16 +1631,6 @@ QDF_STATUS hdd_roam_register_sta(struct wlan_hdd_link_info *link_info,
 						txrx_desc.peer_addr.bytes);
 	}
 	txrx_desc.bw = hdd_convert_ch_width_to_cdp_peer_bw(ch_width);
-
-#ifdef WLAN_LOCAL_PKT_CAPTURE_SUBFILTER
-	if (adapter->device_mode == QDF_STA_MODE) {
-		txrx_desc.beacon_interval = ucfg_mlme_get_beacon_interval(vdev);
-		qdf_mem_copy(txrx_desc.self_link_addr.bytes,
-			     hdd_adapter_get_link_mac_addr(link_info),
-			     QDF_MAC_ADDR_SIZE);
-	}
-#endif
-
 	qdf_status = cdp_peer_register(soc, OL_TXRX_PDEV_ID, &txrx_desc);
 	if (!QDF_IS_STATUS_SUCCESS(qdf_status)) {
 		hdd_err("cdp_peer_register() failed Status: %d [0x%08X]",

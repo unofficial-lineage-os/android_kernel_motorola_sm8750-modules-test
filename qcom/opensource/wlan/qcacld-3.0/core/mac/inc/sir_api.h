@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2012-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2025 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -1028,9 +1028,7 @@ struct oem_channel_info {
 enum sir_sme_phy_mode {
 	SIR_SME_PHY_MODE_LEGACY = 0,
 	SIR_SME_PHY_MODE_HT = 1,
-	SIR_SME_PHY_MODE_VHT = 2,
-	SIR_SME_PHY_MODE_HE = 3,
-	SIR_SME_PHY_MODE_EHT = 4,
+	SIR_SME_PHY_MODE_VHT = 2
 };
 
 /* / Definition for Association indication from peer */
@@ -1767,10 +1765,9 @@ struct sir_host_offload_req {
 };
 
 /* Packet Types. */
-#define SIR_KEEP_ALIVE_NULL_PKT			1
-#define SIR_KEEP_ALIVE_UNSOLICIT_ARP_RSP	2
-#define SIR_KEEP_ALIVE_GRAT_ARP			4
-#define SIR_KEEP_ALIVE_MGMT_FRAME		5
+#define SIR_KEEP_ALIVE_NULL_PKT              1
+#define SIR_KEEP_ALIVE_UNSOLICIT_ARP_RSP     2
+#define SIR_KEEP_ALIVE_MGMT_FRAME            5
 
 /* Keep Alive request. */
 struct keep_alive_req {
@@ -4379,24 +4376,22 @@ struct wow_enable_params {
 #define HE_LTF_1X	0
 #define HE_LTF_2X	1
 #define HE_LTF_4X	2
+
 #define HE_LTF_ALL	0x7
+#define HE_SGI_MASK	0xFF00
 
 #define AUTO_RATE_GI_400NS	8
 #define AUTO_RATE_GI_800NS	9
 #define AUTO_RATE_GI_1600NS	10
 #define AUTO_RATE_GI_3200NS	11
 
-#define HE_LTF_INDEX	0
-#define HE_LTF_NUM_BITS	3
+#define AUTO_RATE_LDPC_DIS_BIT	16
 
-#define HE_SGI_INDEX	8
-#define HE_SGI_NUM_BITS	8
+#define SET_AUTO_RATE_SGI_VAL(set_val, bit_mask) \
+	(set_val = (set_val & HE_LTF_ALL) | bit_mask)
 
-#define AUTO_RATE_LDPC_DIS_BIT		16
-#define AUTO_RATE_LDPC_DIS_NUM_BITS	1
-
-#define AUTO_RATE_STBC_DIS_BIT		17
-#define AUTO_RATE_STBC_DIS_NUM_BITS	1
+#define SET_AUTO_RATE_HE_LTF_VAL(set_val, bit_mask) \
+	(set_val = (set_val & HE_SGI_MASK) | bit_mask)
 
 #define MSCS_OUI_TYPE "\x58"
 #define MSCS_OUI_SIZE 1

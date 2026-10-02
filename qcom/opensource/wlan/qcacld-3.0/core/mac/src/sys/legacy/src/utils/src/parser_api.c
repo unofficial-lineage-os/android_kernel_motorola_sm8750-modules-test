@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2012-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+ * Copyright (c) 2021-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -68,8 +68,6 @@
 #endif
 
 #include <wlan_vdev_mgr_utils_api.h>
-#include "cfg_mlme_he_caps.h"
-#include "cfg_ucfg_api.h"
 
 #define BW_160 160
 
@@ -77,7 +75,6 @@
 #define WMM_OUI_TYPE_SIZE  5
 
 #define RSN_OUI_SIZE 4
-#define SIGN_BIT 7
 /* ////////////////////////////////////////////////////////////////////// */
 #ifdef WLAN_FEATURE_FILS_SK_SAP
 static void fils_convert_assoc_req_frame2_struct(tDot11fAssocRequest *ar,
@@ -449,7 +446,7 @@ populate_dot11f_tx_power_env(struct mac_context *mac,
 	bool psd_tpe = false;
 	uint32_t bw_threshold, bw_val;
 	int num_tpe_ies = 0;
-	uint32_t num_tx_power, num_tx_power_psd = 0, num_extn_tx_pwr = 0;
+	uint32_t num_tx_power, num_tx_power_psd = 0, num_extn_tx_pwr;
 	uint32_t max_tx_pwr_count, max_tx_pwr_count_psd = 0, total_tx_pwr_psd;
 	qdf_freq_t psd_start_freq, curr_freq = chan_freq;
 	enum phy_ch_width legacy_bw;
@@ -599,9 +596,6 @@ populate_dot11f_tx_power_env(struct mac_context *mac,
 		}
 	}
 
-	if (punct_bitmap)
-		wlan_reg_set_input_punc_bitmap(&chan_params, punct_bitmap);
-
 	chan_params.ch_width = chan_width;
 	wlan_reg_set_channel_params_for_pwrmode(mac->pdev, chan_freq,
 						chan_freq, &chan_params,
@@ -613,6 +607,7 @@ populate_dot11f_tx_power_env(struct mac_context *mac,
 		psd_start_freq = chan_params.mhz_freq_seg0 - bw_val / 2 + 10;
 
 	if (punct_bitmap) {
+		wlan_reg_set_input_punc_bitmap(&chan_params, punct_bitmap);
 		wlan_reg_set_non_eht_ch_params(&chan_params, true);
 		wlan_reg_set_channel_params_for_pwrmode(mac->pdev, chan_freq,
 							chan_freq, &chan_params,
@@ -723,8 +718,6 @@ populate_dot11f_chan_switch_wrapper(struct mac_context *mac,
 	qdf_freq_t target_freq;
 	uint8_t ccfs0, ccfs1;
 	enum phy_ch_width ch_width;
-	uint8_t vht_ch_width = WNI_CFG_VHT_CHANNEL_WIDTH_20_40MHZ;
-
 	/*
 	 * The new country subelement is present only when
 	 * 1. AP performs Extended Channel switching to new country.
@@ -756,10 +749,10 @@ populate_dot11f_chan_switch_wrapper(struct mac_context *mac,
 	 * comes between 80 MHz and 160 MHz by presence of CCFS1 incase of
 	 * 160 MHz which is set to zero incase of 80 MHz.
 	 */
-	if (ch_width == CH_WIDTH_160MHZ)
-		vht_ch_width = WNI_CFG_VHT_CHANNEL_WIDTH_80MHZ;
+	if (ch_width == WNI_CFG_VHT_CHANNEL_WIDTH_160MHZ)
+		ch_width = WNI_CFG_VHT_CHANNEL_WIDTH_80MHZ;
 
-	pDot11f->WiderBWChanSwitchAnn.newChanWidth = vht_ch_width;
+	pDot11f->WiderBWChanSwitchAnn.newChanWidth = ch_width;
 	pDot11f->WiderBWChanSwitchAnn.newCenterChanFreq0 = ccfs0;
 	pDot11f->WiderBWChanSwitchAnn.newCenterChanFreq1 = ccfs1;
 	pDot11f->WiderBWChanSwitchAnn.present = 1;
@@ -769,11 +762,10 @@ populate_dot11f_chan_switch_wrapper(struct mac_context *mac,
 	 */
 	if (pe_session->vhtCapability) {
 		populate_dot11f_tx_power_env(mac, pe_session,
-				&pDot11f->transmit_power_env[0],
+				&pDot11f->transmit_power_env,
 				pe_session->gLimChannelSwitch.ch_width,
 				pe_session->gLimChannelSwitch.sw_target_freq,
 				&num_tpe, true);
-		pDot11f->num_transmit_power_env = num_tpe;
 	}
 }
 
@@ -1348,7 +1340,6 @@ ePhyChanBondState wlan_get_cb_mode(struct mac_context *mac,
 				   tDot11fBeaconIEs *ie_struct,
 				   struct pe_session *pe_session)
 {
-	struct wlan_crypto_params *crypto_params;
 	ePhyChanBondState cb_mode = PHY_SINGLE_CHANNEL_CENTERED;
 	uint32_t sec_ch_freq = 0;
 	uint32_t self_cb_mode;
@@ -1368,17 +1359,24 @@ ePhyChanBondState wlan_get_cb_mode(struct mac_context *mac,
 		return PHY_SINGLE_CHANNEL_CENTERED;
 	}
 
-	if (!ie_struct->HTInfo.present)
-		return PHY_SINGLE_CHANNEL_CENTERED;
-
 	/* In Case WPA2 and TKIP is the only one cipher suite in Pairwise */
-	crypto_params = wlan_crypto_vdev_get_crypto_params(pe_session->vdev);
-	if (crypto_params && QDF_HAS_PARAM(crypto_params->ucastcipherset,
-					   WLAN_CRYPTO_CIPHER_TKIP)) {
-		pe_debug("No channel bonding in TKIP mode, ucast: %x",
-			 crypto_params->ucastcipherset);
+	if ((ie_struct->RSN.present &&
+	    (ie_struct->RSN.pwise_cipher_suite_count == 1) &&
+	    !qdf_mem_cmp(&(ie_struct->RSN.pwise_cipher_suites[0][0]),
+			 "\x00\x0f\xac\x02", 4)) ||
+		/* In Case only WPA1 is supported and TKIP is
+		 * the only one cipher suite in Unicast.
+		 */
+	    (!ie_struct->RSN.present && (ie_struct->WPA.present &&
+	    (ie_struct->WPA.unicast_cipher_count == 1) &&
+	    !qdf_mem_cmp(&(ie_struct->WPA.unicast_ciphers[0][0]),
+			 "\x00\x50\xf2\x02", 4)))) {
+		pe_debug("No channel bonding in TKIP mode");
 		return PHY_SINGLE_CHANNEL_CENTERED;
 	}
+
+	if (!ie_struct->HTInfo.present)
+		return PHY_SINGLE_CHANNEL_CENTERED;
 
 	pe_debug("ch freq %d scws %u rtws %u sco %u", ch_freq,
 		 ie_struct->HTCaps.supportedChannelWidthSet,
@@ -1452,16 +1450,18 @@ void lim_log_vht_cap(struct mac_context *mac, tDot11fIEVHTCaps *pDot11f)
 	pe_debug("vhtLinkAdaptCap (2): %d",
 		pDot11f->vhtLinkAdaptCap);
 	pe_debug("rxAntPattern (1): %d",
-		pDot11f->rxAntPattern);
+		pDot11f->rxAntPattern;
 	pe_debug("txAntPattern (1): %d",
 		pDot11f->txAntPattern);
+	pe_debug("reserved1 (2): %d", pDot11f->reserved1);
 	pe_debug("rxMCSMap (16): %d", pDot11f->rxMCSMap);
 	pe_debug("rxHighSupDataRate (13): %d",
 		pDot11f->rxHighSupDataRate);
+	pe_debug("reserved2(3): %d", pDot11f->reserved2);
 	pe_debug("txMCSMap (16): %d", pDot11f->txMCSMap);
-	pe_debug("txSupDataRate (13): %d",
-		pDot11f->txSupDataRate);
-	pe_debug("reserved (2): %d", pDot11f->reserved);
+	pe_debug("txSupDataRate (13): %d"),
+		pDot11f->txSupDataRate;
+	pe_debug("reserved3 (3): %d", pDot11f->reserved3);
 #endif /* DUMP_MGMT_CNTNTS */
 }
 
@@ -1483,6 +1483,7 @@ static void lim_log_operating_mode(struct mac_context *mac,
 {
 #ifdef DUMP_MGMT_CNTNTS
 	pe_debug("ChanWidth: %d", pDot11f->chanWidth);
+	pe_debug("reserved: %d", pDot11f->reserved);
 	pe_debug("rxNSS: %d", pDot11f->rxNSS);
 	pe_debug("rxNSS Type: %d", pDot11f->rxNSSType);
 #endif /* DUMP_MGMT_CNTNTS */
@@ -1713,27 +1714,17 @@ populate_dot11f_vht_operation(struct mac_context *mac,
 	band = wlan_reg_freq_to_band(pe_session->curr_op_freq);
 	band_mask = 1 << band;
 
-	if (pe_session->opmode == QDF_SAP_MODE &&
-	    lim_is_session_eht_capable(pe_session) &&
-	    pe_session->he_punc_chan_info.present) {
-		ch_params.mhz_freq_seg0 =
-				pe_session->he_punc_chan_info.center_freq_seg0;
+	ch_params.ch_width = pe_session->ch_width;
+	ch_params.mhz_freq_seg0 =
+		wlan_reg_chan_band_to_freq(mac->pdev,
+					   pe_session->ch_center_freq_seg0,
+					   band_mask);
+
+	if (pe_session->ch_center_freq_seg1)
 		ch_params.mhz_freq_seg1 =
-				pe_session->he_punc_chan_info.center_freq_seg1;
-		ch_params.ch_width = pe_session->he_punc_chan_info.chan_width;
-	} else {
-		ch_params.ch_width = pe_session->ch_width;
-		ch_params.mhz_freq_seg0 = wlan_reg_chan_band_to_freq(
-						mac->pdev,
-						pe_session->ch_center_freq_seg0,
-						band_mask);
-		if (pe_session->ch_center_freq_seg1)
-			ch_params.mhz_freq_seg1 =
-					wlan_reg_chan_band_to_freq(
-						mac->pdev,
-						pe_session->ch_center_freq_seg1,
-						band_mask);
-	}
+			wlan_reg_chan_band_to_freq(mac->pdev,
+						   pe_session->ch_center_freq_seg1,
+						   band_mask);
 
 	if (band == (REG_BAND_2G) && ch_params.ch_width == CH_WIDTH_40MHZ) {
 		if (ch_params.mhz_freq_seg0 ==  pe_session->curr_op_freq + 10)
@@ -1749,12 +1740,12 @@ populate_dot11f_vht_operation(struct mac_context *mac,
 
 	pDot11f->present = 1;
 
-	if (ch_params.ch_width > CH_WIDTH_40MHZ) {
+	if (pe_session->ch_width > CH_WIDTH_40MHZ) {
 		pDot11f->chanWidth = 1;
 		pDot11f->chan_center_freq_seg0 =
 			ch_params.center_freq_seg0;
-		if (ch_params.ch_width == CH_WIDTH_80P80MHZ ||
-		    ch_params.ch_width == CH_WIDTH_160MHZ)
+		if (pe_session->ch_width == CH_WIDTH_80P80MHZ ||
+				pe_session->ch_width == CH_WIDTH_160MHZ)
 			pDot11f->chan_center_freq_seg1 =
 				ch_params.center_freq_seg1;
 		else
@@ -2113,46 +2104,26 @@ populate_dot11f_measurement_report2(struct mac_context *mac,
 } /* End PopulatedDot11fMeasurementReport2. */
 #endif
 
-static
-int8_t populate_decimal_min_power(uint8_t power)
-{
-	int is_power_negative;
-
-	is_power_negative = (power & (1 << SIGN_BIT)) != 0;
-
-	if (is_power_negative)
-		return power | ~((1 << SIGN_BIT) - 1);
-	else
-		return power;
-}
-
 void
 populate_dot11f_power_caps(struct mac_context *mac,
 			   tDot11fIEPowerCaps *pCaps,
 			   uint8_t nAssocType, struct pe_session *pe_session)
 {
 	struct vdev_mlme_obj *mlme_obj;
-	int8_t min_power;
 
 	pCaps->minTxPower = pe_session->min_11h_pwr;
 	pCaps->maxTxPower = pe_session->maxTxPower;
-	pCaps->present = 1;
 
 	/* Use firmware updated max tx power if non zero */
 	mlme_obj = wlan_vdev_mlme_get_cmpt_obj(pe_session->vdev);
-	if (!mlme_obj) {
-		pe_err("mlme_obj invalid");
-		return;
-	}
-
-	if (mlme_obj->mgmt.generic.tx_pwrlimit)
+	if (mlme_obj && mlme_obj->mgmt.generic.tx_pwrlimit)
 		pCaps->maxTxPower = mlme_obj->mgmt.generic.tx_pwrlimit;
 
-	min_power = populate_decimal_min_power(mlme_obj->mgmt.generic.minpower);
+	if (mlme_obj && mlme_obj->mgmt.generic.minpower)
+		pCaps->minTxPower = QDF_MIN(pCaps->minTxPower,
+					    mlme_obj->mgmt.generic.minpower);
 
-	if (mlme_obj->mgmt.generic.minpower)
-		pCaps->minTxPower = QDF_MIN(pCaps->minTxPower, min_power);
-
+	pCaps->present = 1;
 } /* End populate_dot11f_power_caps. */
 
 QDF_STATUS
@@ -4276,14 +4247,30 @@ static QDF_STATUS
 sir_copy_assoc_rsp_partner_info_to_session(struct pe_session *session_entry,
 					   struct mlo_partner_info *partner_info)
 {
+	uint16_t i, partner_idx = 0, j, link_id;
+	struct mlo_link_info *link_info;
 	struct mlo_partner_info *ml_partner_info =
 			&session_entry->ml_partner_info;
 
+	link_info = mlo_mgr_get_ap_link(session_entry->vdev);
+	if (!link_info)
+		return QDF_STATUS_E_FAILURE;
+
 	/* Clear the Partner info already filled from the join request */
 	qdf_mem_zero(ml_partner_info, sizeof(*ml_partner_info));
-	if (partner_info->num_partner_links)
-		qdf_mem_copy(ml_partner_info, partner_info,
-			     sizeof(*partner_info));
+	for (i = 1; i < WLAN_MAX_ML_BSS_LINKS; i++) {
+		link_id = link_info[i].link_id;
+		for (j = 0; j < partner_info->num_partner_links; j++) {
+			if (partner_info->partner_link_info[j].link_id !=
+			    link_id)
+				continue;
+
+			ml_partner_info->partner_link_info[partner_idx++] =
+					partner_info->partner_link_info[j];
+			break;
+		}
+	}
+	ml_partner_info->num_partner_links = partner_idx;
 
 	return QDF_STATUS_SUCCESS;
 }
@@ -4322,17 +4309,16 @@ sir_convert_assoc_resp_frame2_mlo_struct(struct mac_context *mac,
 					    &partner_info,
 					    WLAN_FC0_STYPE_ASSOC_RESP);
 
-	if (p_assoc_rsp->status_code == STATUS_SUCCESS &&
-	    !wlan_vdev_mlme_is_mlo_link_vdev(session_entry->vdev) &&
-	    session_entry->ml_partner_info.num_partner_links &&
-	    !wlan_cm_is_roam_sync_in_progress(mac->psoc,
-					      session_entry->vdev_id)) {
-		mlo_mgr_validate_connection_partner_links(session_entry->vdev,
-							  &partner_info);
-		sir_copy_assoc_rsp_partner_info_to_session(session_entry,
-							   &partner_info);
-	}
+	sir_copy_assoc_rsp_partner_info_to_session(session_entry,
+						   &partner_info);
 
+	if (!wlan_cm_is_roam_sync_in_progress(mac->psoc,
+					      session_entry->vdev_id)) {
+		session_entry->ml_partner_info.num_partner_links =
+		QDF_MIN(
+		session_entry->ml_partner_info.num_partner_links,
+		session_entry->lim_join_req->partner_info.num_partner_links);
+	}
 	util_get_bvmlie_mldmacaddr(ml_ie, ml_ie_total_len,
 				   &mld_mac_addr);
 	qdf_mem_copy(ml_ie_info->mld_mac_addr,
@@ -5599,9 +5585,9 @@ QDF_STATUS sir_parse_beacon_ie(struct mac_context *mac,
 						 pBies->HTInfo.primaryChannel);
 	}
 
-	if (pBies->RSNOpaque.present) {
+	if (pBies->RSN.present) {
 		pBeaconStruct->rsnPresent = 1;
-		convert_rsn_opaque(mac, &pBeaconStruct->rsn, &pBies->RSNOpaque);
+		convert_rsn(mac, &pBeaconStruct->rsn, &pBies->RSN);
 	} else {
 		pe_debug("RSN IE is not present");
 	}
@@ -6139,10 +6125,9 @@ QDF_STATUS sir_convert_beacon_frame2_struct(struct mac_context *mac,
 		pe_debug_rl("In Beacon No Channel info");
 	}
 
-	if (pBeacon->RSNOpaque.present) {
+	if (pBeacon->RSN.present) {
 		pBeaconStruct->rsnPresent = 1;
-		convert_rsn_opaque(mac, &pBeaconStruct->rsn,
-				   &pBeacon->RSNOpaque);
+		convert_rsn(mac, &pBeaconStruct->rsn, &pBeacon->RSN);
 	}
 
 	if (pBeacon->WPA.present) {
@@ -8166,8 +8151,6 @@ populate_dot11f_twt_he_cap(struct mac_context *mac,
 	wlan_twt_get_bcast_responder_cfg(mac->psoc, &bcast_responder);
 
 	he_cap->broadcast_twt = 0;
-	he_cap->twt_request = 0;
-	he_cap->twt_responder = 0;
 	switch (session->opmode) {
 	case QDF_STA_MODE:
 	case QDF_P2P_CLIENT_MODE:
@@ -8179,12 +8162,8 @@ populate_dot11f_twt_he_cap(struct mac_context *mac,
 	case QDF_SAP_MODE:
 	case QDF_P2P_GO_MODE:
 		wlan_twt_get_responder_cfg(mac->psoc, &twt_responder);
-		if (policy_mgr_is_vdev_ll_lt_sap(mac->psoc,
-						 session->vdev_id))
-			he_cap->twt_responder = twt_responder;
-		else
-			he_cap->twt_responder = twt_responder &&
-					twt_get_responder_flag(mac);
+		he_cap->twt_responder =
+			twt_responder && twt_get_responder_flag(mac);
 		he_cap->broadcast_twt = bcast_responder;
 		pe_debug("vdev:%d bcast_responder:%d twt_responder:%d",
 			 session->vdev_id, he_cap->broadcast_twt,
@@ -8267,9 +8246,6 @@ populate_dot11f_he_caps_by_band(struct mac_context *mac_ctx,
 				tDot11fIEhe_cap *he_cap,
 				struct pe_session *session)
 {
-	uint8_t *ppet;
-	uint32_t ppet_value = 0;
-
 	if (is_2g) {
 		qdf_mem_copy(he_cap, &mac_ctx->he_cap_2g, sizeof(*he_cap));
 		if (session) {
@@ -8284,23 +8260,6 @@ populate_dot11f_he_caps_by_band(struct mac_context *mac_ctx,
 
 	if (session)
 		populate_dot11f_twt_he_cap(mac_ctx, session, he_cap);
-
-	if (he_cap->ppet_present) {
-		ppet_value = WNI_CFG_HE_PPET_LEN;
-		if (!is_2g)
-			qdf_mem_copy(he_cap->ppet.ppe_threshold.ppe_th,
-				     mac_ctx->mlme_cfg->he_caps.he_ppet_5g,
-				     ppet_value);
-		else
-			qdf_mem_copy(he_cap->ppet.ppe_threshold.ppe_th,
-				     mac_ctx->mlme_cfg->he_caps.he_ppet_2g,
-				     ppet_value);
-		ppet = he_cap->ppet.ppe_threshold.ppe_th;
-		he_cap->ppet.ppe_threshold.num_ppe_th =
-					lim_truncate_ppet(ppet, ppet_value);
-	} else {
-		he_cap->ppet.ppe_threshold.num_ppe_th = 0;
-	}
 
 	return QDF_STATUS_SUCCESS;
 }
@@ -10678,8 +10637,7 @@ QDF_STATUS lim_ieee80211_unpack_tpe(const uint8_t *tpe_ie,
 
 	/* Get number of tx power included in IE based on interpret value */
 	if (dot11f_tpe->max_tx_pwr_interpret == 0 ||
-	    dot11f_tpe->max_tx_pwr_interpret == 2 ||
-	    dot11f_tpe->max_tx_pwr_interpret == 4) {
+	    dot11f_tpe->max_tx_pwr_interpret == 2) {
 		dot11f_tpe->num_tx_power = dot11f_tpe->max_tx_pwr_count + 1;
 	} else {
 		if (!dot11f_tpe->max_tx_pwr_count) {
@@ -10739,27 +10697,6 @@ QDF_STATUS lim_ieee80211_unpack_tpe(const uint8_t *tpe_ie,
 		}
 		ext_psd_count = dot11f_tpe->ext_max_tx_power.ext_max_tx_power_reg_psd.ext_count;
 		qdf_mem_copy(dot11f_tpe->ext_max_tx_power.ext_max_tx_power_reg_psd.max_tx_psd_power,
-			     buf, ext_psd_count);
-
-		buf += ext_psd_count;
-		ie_len -= ext_psd_count;
-		break;
-	case 4:
-		dot11f_tpe->ext_max_tx_power.ext_max_tx_power_addn_reg_eirp.max_tx_power_for_320 = *buf;
-		dot11f_tpe->num_tx_power++;
-		buf += 1;
-		ie_len -= 1;
-		break;
-	case 5:
-		tmp = *buf;
-		buf += 1;
-		ie_len -= 1;
-		dot11f_tpe->ext_max_tx_power.ext_max_tx_power_addn_reg_psd.ext_count = tmp >> 0 & 0xf;
-		if (unlikely(ie_len < (tmp >> 0 & 0xf)))
-			return QDF_STATUS_E_BADMSG;
-
-		ext_psd_count = dot11f_tpe->ext_max_tx_power.ext_max_tx_power_addn_reg_psd.ext_count;
-		qdf_mem_copy(dot11f_tpe->ext_max_tx_power.ext_max_tx_power_addn_reg_psd.max_tx_psd_power,
 			     buf, ext_psd_count);
 
 		buf += ext_psd_count;
@@ -10892,10 +10829,7 @@ populate_dot11f_probe_req_mlo_ie(struct mac_context *mac,
 
 no_sta_prof:
 	mlo_ie->num_sta_profile = num_sta_pro;
-	if (session->limMlmState == eLIM_MLM_WT_JOIN_BEACON_STATE)
-		session->lim_join_req->is_ml_probe_req_sent = true;
-	else
-		session->lim_join_req->is_ml_probe_req_sent = false;
+	session->lim_join_req->is_ml_probe_req_sent = true;
 
 	return QDF_STATUS_SUCCESS;
 }
@@ -12827,11 +12761,7 @@ QDF_STATUS populate_dot11f_twt_extended_caps(struct mac_context *mac_ctx,
 	if (pe_session->opmode == QDF_SAP_MODE ||
 	    pe_session->opmode == QDF_P2P_GO_MODE) {
 		wlan_twt_get_responder_cfg(mac_ctx->psoc, &twt_responder);
-		if (policy_mgr_is_vdev_ll_lt_sap(mac_ctx->psoc,
-						 pe_session->vdev_id))
-			p_ext_cap->twt_responder_support = twt_responder;
-		else
-			p_ext_cap->twt_responder_support =
+		p_ext_cap->twt_responder_support =
 			twt_responder && twt_get_responder_flag(mac_ctx);
 	}
 
@@ -13647,43 +13577,6 @@ compute_len:
 	return QDF_STATUS_SUCCESS;
 }
 
-#ifdef CONFIG_BAND_6GHZ
-#define CHAN_ENUM_6GHZ MIN_6GHZ_CHANNEL + 1
-#else
-#define CHAN_ENUM_6GHZ MAX_5GHZ_CHANNEL
-#endif
-
-QDF_STATUS
-populate_dot11f_reg_connectivity(struct mac_context *mac_ctx,
-				 tDot11fIEreg_connect *dot11f)
-{
-	dot11f->present = 1;
-
-	if (QDF_IS_STATUS_SUCCESS(wlan_reg_check_if_6g_pwr_type_supp_for_chan(
-				  mac_ctx->pdev, REG_VERY_LOW_POWER_AP,
-				  CHAN_ENUM_6GHZ)) ||
-	    QDF_IS_STATUS_SUCCESS(wlan_reg_check_if_6g_pwr_type_supp_for_chan(
-				  mac_ctx->pdev, REG_INDOOR_AP,
-				  CHAN_ENUM_6GHZ))) {
-		pe_debug("Indoor AP connectivity is valid");
-		dot11f->indoor_ap_valid = 1;
-		dot11f->indoor_ap_support = 1;
-	}
-
-	if (QDF_IS_STATUS_SUCCESS(wlan_reg_check_if_6g_pwr_type_supp_for_chan(
-				  mac_ctx->pdev, REG_VERY_LOW_POWER_AP,
-				  CHAN_ENUM_6GHZ)) ||
-	    QDF_IS_STATUS_SUCCESS(wlan_reg_check_if_6g_pwr_type_supp_for_chan(
-				  mac_ctx->pdev, REG_STANDARD_POWER_AP,
-				  CHAN_ENUM_6GHZ))) {
-		pe_debug("SP AP connectivity is valid");
-		dot11f->sp_ap_valid = 1;
-		dot11f->sp_ap_support = 1;
-	}
-
-	return QDF_STATUS_SUCCESS;
-}
-
 #ifdef WLAN_FEATURE_11BE_MLO
 /**
  * populate_dot11f_mlo_partner_sta_cap() - populate mlo sta partner capability
@@ -13805,19 +13698,6 @@ QDF_STATUS populate_dot11f_auth_mlo_ie(struct mac_context *mac_ctx,
 	return QDF_STATUS_SUCCESS;
 }
 
-static inline void
-populate_dot11f_use_reporting_bss_ext_cap(tDot11fIEExtCap *reporting_ext_cap,
-					  tDot11fIEExtCap *reported_ext_cap)
-{
-	struct s_ext_cap *reporting_caps, *reported_caps;
-
-	reporting_caps = (struct s_ext_cap *)&reporting_ext_cap->bytes[0];
-	reported_caps = (struct s_ext_cap *)&reported_ext_cap->bytes[0];
-
-	if (reported_caps->scs != reporting_caps->scs)
-		reported_caps->scs = reporting_caps->scs;
-}
-
 QDF_STATUS populate_dot11f_assoc_req_mlo_ie(struct mac_context *mac_ctx,
 					    struct pe_session *pe_session,
 					    tDot11fAssocRequest *frm)
@@ -13858,7 +13738,8 @@ QDF_STATUS populate_dot11f_assoc_req_mlo_ie(struct mac_context *mac_ctx,
 	struct wlan_mlo_eml_cap eml_cap = {0};
 	uint16_t presence_bitmap = 0;
 	bool is_2g;
-	uint8_t cb_mode;
+	uint32_t value = 0;
+	uint8_t *ppet, cb_mode;
 	uint8_t *eht_cap_ie = NULL;
 	bool sta_prof_he_ie = false;
 
@@ -14217,9 +14098,6 @@ QDF_STATUS populate_dot11f_assoc_req_mlo_ie(struct mac_context *mac_ctx,
 		populate_dot11f_ext_cap(mac_ctx, true, &ext_cap, NULL);
 		populate_dot11f_btm_extended_caps(mac_ctx, pe_session,
 						  &ext_cap);
-		populate_dot11f_use_reporting_bss_ext_cap(&frm->ExtCap,
-							  &ext_cap);
-
 		if ((ext_cap.present && frm->ExtCap.present &&
 		     qdf_mem_cmp(&ext_cap, &frm->ExtCap, sizeof(ext_cap))) ||
 		     (ext_cap.present && !frm->ExtCap.present)) {
@@ -14228,21 +14106,12 @@ QDF_STATUS populate_dot11f_assoc_req_mlo_ie(struct mac_context *mac_ctx,
 					       len_remaining, &len_consumed);
 			p_sta_prof += len_consumed;
 			len_remaining -= len_consumed;
-		} else if (!ext_cap.present && frm->ExtCap.present) {
+		} else if (ext_cap.present && !frm->ExtCap.present) {
 			non_inher_ie_lists[non_inher_len++] = DOT11F_EID_EXTCAP;
 		}
 
-		/* Fill VHT for 5 GHz or 2 GHz with b24ghz_band enabled */
-		if ((is_2g &&
-		     mac_ctx->mlme_cfg->vht_caps.vht_cap_info.b24ghz_band) ||
-		    WLAN_REG_IS_5GHZ_CH_FREQ(chan_freq)) {
+		if (!WLAN_REG_IS_6GHZ_CHAN_FREQ(chan_freq))
 			populate_dot11f_vht_caps(mac_ctx, NULL, &vht_caps);
-			if (is_2g) {
-				vht_caps.supportedChannelWidthSet = 0;
-				vht_caps.shortGI80MHz = 0;
-				vht_caps.shortGI160and80plus80MHz = 0;
-			}
-		}
 		if ((vht_caps.present && frm->VHTCaps.present &&
 		     qdf_mem_cmp(&vht_caps, &frm->VHTCaps, sizeof(vht_caps))) ||
 		     (vht_caps.present && !frm->VHTCaps.present)) {
@@ -14258,7 +14127,23 @@ QDF_STATUS populate_dot11f_assoc_req_mlo_ie(struct mac_context *mac_ctx,
 
 		populate_dot11f_he_caps_by_band(mac_ctx, is_2g, &he_caps,
 						pe_session);
+		if (he_caps.ppet_present) {
+			value = WNI_CFG_HE_PPET_LEN;
+			if (!is_2g)
+				qdf_mem_copy(he_caps.ppet.ppe_threshold.ppe_th,
+					mac_ctx->mlme_cfg->he_caps.he_ppet_5g,
+					value);
+			else
+				qdf_mem_copy(he_caps.ppet.ppe_threshold.ppe_th,
+					mac_ctx->mlme_cfg->he_caps.he_ppet_2g,
+					value);
 
+			ppet = he_caps.ppet.ppe_threshold.ppe_th;
+			he_caps.ppet.ppe_threshold.num_ppe_th =
+				lim_truncate_ppet(ppet, value);
+		} else {
+			he_caps.ppet.ppe_threshold.num_ppe_th = 0;
+		}
 		if ((he_caps.present && frm->he_cap.present &&
 		     qdf_mem_cmp(&he_caps, &frm->he_cap, sizeof(he_caps))) ||
 		     (he_caps.present && !frm->he_cap.present)) {
@@ -14295,13 +14180,8 @@ QDF_STATUS populate_dot11f_assoc_req_mlo_ie(struct mac_context *mac_ctx,
 		}
 		populate_dot11f_eht_caps_by_band(mac_ctx, is_2g, &eht_caps,
 						 NULL);
-		if (!WLAN_REG_IS_6GHZ_CHAN_FREQ(chan_freq)) {
+		if (!WLAN_REG_IS_6GHZ_CHAN_FREQ(chan_freq))
 			eht_caps.support_320mhz_6ghz = 0;
-			eht_caps.bfee_ss_320mhz = 0;
-		}
-
-		if (!eht_caps.support_320mhz_6ghz || !eht_caps.su_beamformer)
-			eht_caps.num_sounding_dim_320mhz = 0;
 
 		if ((eht_caps.present && frm->eht_cap.present &&
 		     qdf_mem_cmp(&eht_caps, &frm->eht_cap, sizeof(eht_caps))) ||
@@ -14687,13 +14567,16 @@ void populate_dot11f_6g_rnr(struct mac_context *mac_ctx,
 	}
 	populate_dot11f_rnr_tbtt_info(mac_ctx, session, co_session, dot11f,
 				      CURRENT_RNR_TBTT_INFO_LEN);
-	pe_debug("vdev id %d populate RNR IE with 6G vdev id %d op class %d chan num %d tbtt_len %d",
+	pe_debug("vdev id %d populate RNR IE with 6G vdev id %d op class %d chan num %d",
 		 wlan_vdev_get_id(session->vdev),
 		 wlan_vdev_get_id(co_session->vdev),
-		 dot11f->op_class, dot11f->channel_num,
+		 dot11f->op_class, dot11f->channel_num);
+
+	pe_debug("AK: tbtt_len %d ",
 		 dot11f->tbtt_info_len);
 
 	*num_rnr = 1;
+
 }
 
 QDF_STATUS populate_dot11f_bcn_prot_extcaps(struct mac_context *mac_ctx,

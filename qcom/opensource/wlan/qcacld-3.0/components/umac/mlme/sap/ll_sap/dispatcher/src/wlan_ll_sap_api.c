@@ -1,5 +1,5 @@
 /*
- * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+ * Copyright (c) 2023-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -23,8 +23,6 @@
 #include "wlan_reg_services_api.h"
 #include "wlan_dfs_utils_api.h"
 #include "wlan_mlme_vdev_mgr_interface.h"
-#include "wlan_cp_stats_mc_ucfg_api.h"
-#include <wlan_dcs_ucfg_api.h>
 
 #define SET_HT_MCS3(mcs) do { \
 	mcs[0] = 0x0f;        \
@@ -298,7 +296,7 @@ qdf_freq_t wlan_get_ll_lt_sap_restart_freq(struct wlan_objmgr_pdev *pdev,
 				chan_freq)) {
 		*csa_reason = CSA_REASON_UNSAFE_CHANNEL;
 		goto get_new_ll_lt_sap_freq;
-	} else if (policy_mgr_is_ll_lt_sap_restart_required(psoc, chan_freq)) {
+	} else if (policy_mgr_is_ll_lt_sap_restart_required(psoc)) {
 		*csa_reason = CSA_REASON_CONCURRENT_STA_CHANGED_CHANNEL;
 		goto get_new_ll_lt_sap_freq;
 	}
@@ -349,13 +347,8 @@ wlan_ll_sap_fw_bearer_switch_req(struct wlan_objmgr_psoc *psoc,
 	else
 		status = ll_lt_sap_switch_bearer_to_ble(psoc, &bs_request);
 
-	if (QDF_IS_STATUS_ERROR(status)) {
-		ll_sap_err("vdev %d Bearer req failed type %d",
-			   ll_lt_sap_vdev_id, req_type);
-		ll_lt_sap_deliver_audio_transport_switch_resp_to_fw(psoc,
-					req_type, WLAN_BS_STATUS_REJECTED);
-		return QDF_STATUS_E_INVAL;
-	}
+	if (QDF_IS_STATUS_ERROR(status))
+		return QDF_STATUS_E_ALREADY;
 
 	return QDF_STATUS_SUCCESS;
 }
@@ -465,68 +458,6 @@ uint64_t wlan_ll_sap_get_target_tsf(struct wlan_objmgr_vdev *vdev,
 	return 0;
 }
 
-uint32_t
-wlan_ll_sap_get_cu_for_freq(struct wlan_objmgr_pdev *pdev, qdf_freq_t ch_freq)
-{
-	uint32_t cu = 0;
-	uint32_t rx_clear_count = 0;
-	struct channel_status *ch_stats = NULL;
-
-	ch_stats = ucfg_mc_cp_stats_get_channel_status(pdev, ch_freq);
-	if (!ch_stats) {
-		ll_sap_err("Stats not found for freq %d", ch_freq);
-		return cu;
-	}
-
-	if (!ch_stats->cycle_count) {
-		ll_sap_debug("Stats not valid for freq %d as cc is 0", ch_freq);
-		return cu;
-	}
-
-	/* CU = Rx clear count - self tx - self rx) * 100 / total clear count */
-	if (ch_stats->rx_clear_count >
-	    (ch_stats->tx_frame_count + ch_stats->bss_rx_cycle_count))
-		rx_clear_count = ch_stats->rx_clear_count -
-			ch_stats->tx_frame_count - ch_stats->bss_rx_cycle_count;
-	else
-		rx_clear_count = ch_stats->rx_clear_count;
-
-	cu = rx_clear_count * 100 / ch_stats->cycle_count;
-
-	ll_sap_debug("cu: %u, rx_cc %u, tx_fc %u, bss_rx_cc %u cc %d",
-		     cu, ch_stats->rx_clear_count,
-		     ch_stats->tx_frame_count, ch_stats->bss_rx_cycle_count,
-		     ch_stats->cycle_count);
-	return cu;
-}
-uint32_t
-wlan_ll_sap_get_cur_freq_unused_cu(struct wlan_objmgr_psoc *psoc,
-				   uint8_t vdev_id)
-{
-	return ll_sap_get_cur_freq_unused_cu(psoc, vdev_id);
-}
-
-QDF_STATUS
-wlan_ll_sap_set_cur_freq_unused_cu(struct wlan_objmgr_psoc *psoc,
-				   uint8_t vdev_id, uint32_t unused_cu)
-{
-	return ll_sap_set_cur_freq_unused_cu(psoc, vdev_id, unused_cu);
-}
-
-bool
-wlan_ll_sap_is_start_bss_in_progress(struct wlan_objmgr_psoc *psoc,
-				     uint8_t vdev_id)
-{
-	return ll_sap_is_start_bss_in_progress(psoc, vdev_id);
-}
-
-QDF_STATUS
-wlan_ll_sap_set_start_bss_in_progress(struct wlan_objmgr_psoc *psoc,
-				      uint8_t vdev_id, bool start_bss)
-{
-	return ll_sap_set_start_bss_in_progress(psoc, vdev_id, start_bss);
-}
-
 uint64_t
 wlan_ll_sap_get_target_tsf_for_vdev_restart(struct wlan_objmgr_vdev *vdev)
 {
@@ -627,8 +558,6 @@ bool wlan_ll_lt_sap_is_freq_in_avoid_list(struct wlan_objmgr_psoc *psoc,
 		return false;
 	}
 
-	ll_lt_sap_flush_old_entries(ll_sap_psoc_obj);
-
 	return ll_lt_sap_is_freq_in_avoid_list(ll_sap_psoc_obj, freq);
 }
 
@@ -648,19 +577,3 @@ wlan_ll_sap_get_valid_freq_for_csa(struct wlan_objmgr_psoc *psoc,
 	return ll_lt_sap_get_valid_freq(psoc, vdev_id, curr_freq, csa_src);
 }
 
-bool wlan_ll_sap_is_cur_cu_greater_than_th(struct wlan_objmgr_psoc *psoc,
-					   uint8_t vdev_id)
-{
-	uint32_t cu, coch_intfr_threshold;
-	uint8_t mac_id = 1;
-
-	policy_mgr_get_mac_id_by_session_id(psoc, vdev_id, &mac_id);
-
-	cu = ll_sap_get_cur_freq_unused_cu(psoc, vdev_id);
-	coch_intfr_threshold = wlan_dcs_get_trnsprt_switch_rjt_th_cu(psoc,
-								     mac_id);
-	if (cu && cu > coch_intfr_threshold)
-		return true;
-
-	return false;
-}

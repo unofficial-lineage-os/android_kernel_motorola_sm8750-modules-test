@@ -266,6 +266,7 @@ struct p2p_param {
  * @param:            p2p parameters to be used
  * @connection_status:Global P2P connection status
  * @mcc_quota_ev_os_if_cb:  callback to OS IF to indicate mcc quota event
+ * @mgmt_frm_registration_update: mgmt frame registration update
  * @sta_vdev_for_p2p_dev_operations: Use sta vdev for p2p device operations
  * @sta_vdev_id: store sta vdev_id to use it for p2p device operation.
  */
@@ -289,6 +290,7 @@ struct p2p_soc_priv_obj {
 #ifdef WLAN_FEATURE_MCC_QUOTA
 	mcc_quota_event_callback mcc_quota_ev_os_if_cb;
 #endif
+	uint32_t mgmt_frm_registration_update;
 	bool sta_vdev_for_p2p_dev_operations;
 	uint32_t sta_vdev_id;
 };
@@ -382,7 +384,6 @@ struct p2p_ap_assist_dfs_ap_info {
  * to DFS owner capability and AP assisted params
  * @is_dfs_owner: Is DFS owner
  * @is_client_csa: Can client send CSA request
- * @is_user_restrict_csa: User restrict CSA on P2P GO
  * @extn_cap_attr_found: Is extended cap attr found
  * @wlan_ap_info_attr_found: Is WLAN AP info attr found
  * @is_valid_ap_assist: Is assisted AP params valid
@@ -392,7 +393,6 @@ struct p2p_ap_assist_dfs_ap_info {
 struct p2p_ap_assist_dfs_group_info {
 	bool is_dfs_owner;
 	bool is_client_csa;
-	bool is_user_restrict_csa;
 	bool extn_cap_attr_found;
 	bool wlan_ap_info_attr_found;
 	bool is_valid_ap_assist;
@@ -700,6 +700,26 @@ p2p_check_and_force_scc_go_plus_go(struct wlan_objmgr_psoc *psoc,
 #endif /* WLAN_FEATURE_P2P_P2P_STA */
 
 /**
+ * p2p_set_mgmt_frm_registration_update() - Set mgmt registration update
+ * @psoc: pointer to psoc object
+ * @mgmt_frm_registration_update: mgmt frame registration update value
+ *
+ * Return: None
+ */
+void
+p2p_set_mgmt_frm_registration_update(struct wlan_objmgr_psoc *psoc,
+				     uint32_t mgmt_frm_registration_update);
+
+/**
+ * p2p_get_mgmt_frm_registration_update() - Get mgmt registration update
+ * @psoc: pointer to psoc object
+ *
+ * Return: uint32_t
+ */
+uint32_t
+p2p_get_mgmt_frm_registration_update(struct wlan_objmgr_psoc *psoc);
+
+/**
  * p2p_parse_assoc_ie_for_device_info() - This function finds P2P interface
  * address from assocaition IE
  * @assoc_ie: Association request IE
@@ -767,7 +787,6 @@ QDF_STATUS p2p_extract_ap_assist_dfs_params(struct wlan_objmgr_vdev *vdev,
  * @vdev: VDEV object manager pointer of P2P entity
  * @is_dfs_owner: Pointer to get DFS owner capability in extended cap of P2P2 IE
  * @is_valid_ap_assist: Is assisted AP params valid
- * @is_usr_restrict_csa: Is user restricted CSA
  * @ap_bssid: Pointer to get AP BSSID of assisted AP in DFS oper extracted from
  * wlan ap info attribute
  * @opclass: Operating class of the AP pointed in @ap_bssid
@@ -778,7 +797,6 @@ QDF_STATUS p2p_extract_ap_assist_dfs_params(struct wlan_objmgr_vdev *vdev,
 QDF_STATUS p2p_get_ap_assist_dfs_params(struct wlan_objmgr_vdev *vdev,
 					bool *is_dfs_owner,
 					bool *is_valid_ap_assist,
-					bool *is_usr_restrict_csa,
 					struct qdf_mac_addr *ap_bssid,
 					uint8_t *opclass, uint8_t *chan);
 
@@ -930,16 +948,4 @@ p2p_set_rand_mac_for_p2p_dev(struct wlan_objmgr_psoc *soc,
 			     uint32_t vdev_id, uint32_t freq,
 			     uint64_t rnd_cookie, uint32_t duration);
 
-/**
- * p2p_force_restrict_dfs_go_csa() - API to handle user restricted CSA via
- * test configuration.
- * @vdev: VDEV object manager.
- * @val: User config value.
- *
- * API to configure restriction of CSA from user for assisted P2P group.
- *
- * Return: QDF_STATUS
- */
-QDF_STATUS
-p2p_force_restrict_dfs_go_csa(struct wlan_objmgr_vdev *vdev, bool val);
 #endif /* _WLAN_P2P_MAIN_H_ */

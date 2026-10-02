@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2012-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+ * Copyright (c) 2021-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -541,13 +541,6 @@ void hdd_enable_ns_offload(struct hdd_adapter *adapter,
 		goto free_req;
 	}
 
-	ucfg_pmo_set_ns_offload_enable_dynamic(vdev, trigger, true);
-
-	if (!ucfg_pmo_get_ns_offload_enable_dynamic(vdev)) {
-		hdd_debug("NS offload is dynamically disabled");
-		goto free_req;
-	}
-
 	if (ucfg_pmo_get_arp_ns_offload_dynamic_disable(vdev)) {
 		hdd_debug("Dynamic arp ns offload disabled");
 		ucfg_pmo_flush_ns_offload_req(vdev);
@@ -619,12 +612,6 @@ void hdd_disable_ns_offload(struct hdd_adapter *adapter,
 		goto out;
 	}
 
-	if (!ucfg_pmo_get_ns_offload_enable_dynamic(vdev)) {
-		hdd_debug("NS offload is already dynamically disabled");
-		goto out;
-	}
-
-	ucfg_pmo_set_ns_offload_enable_dynamic(vdev, trigger, false);
 	status = ucfg_pmo_disable_ns_offload_in_fwr(vdev, trigger);
 	if (status != QDF_STATUS_SUCCESS)
 		hdd_err("Failed to disable NS Offload");
@@ -847,6 +834,7 @@ void hdd_enable_host_offloads(struct hdd_adapter *adapter,
 	}
 
 	hdd_debug("enable offloads");
+	hdd_enable_gtk_offload(vdev);
 	hdd_enable_arp_offload(adapter, vdev, trigger);
 	hdd_enable_ns_offload(adapter, vdev, trigger);
 	hdd_enable_mc_addr_filtering(adapter, trigger);
@@ -1595,6 +1583,20 @@ void hdd_disable_and_flush_mc_addr_list(struct hdd_adapter *adapter,
 }
 
 /**
+ * hdd_update_conn_state_mask() - record info needed by wma_suspend_req
+ * @adapter: adapter to get info from
+ * @conn_state_mask: mask of connection info
+ *
+ * currently only need to send connection info.
+ */
+static void hdd_update_conn_state_mask(struct hdd_adapter *adapter,
+				       uint32_t *conn_state_mask)
+{
+	if (hdd_cm_is_vdev_associated(adapter->deflink))
+		*conn_state_mask |= (1 << adapter->deflink->vdev_id);
+}
+
+/**
  * hdd_suspend_wlan() - Driver suspend function
  *
  * Return: 0 on success else error code.
@@ -1605,6 +1607,7 @@ hdd_suspend_wlan(void)
 	struct hdd_context *hdd_ctx;
 	QDF_STATUS status;
 	struct hdd_adapter *adapter = NULL, *next_adapter = NULL;
+	uint32_t conn_state_mask = 0;
 	struct wlan_hdd_link_info *link_info;
 
 	hdd_info("WLAN being suspended by OS");
@@ -1622,20 +1625,17 @@ hdd_suspend_wlan(void)
 	hdd_for_each_adapter_dev_held_safe(hdd_ctx, adapter, next_adapter,
 					   NET_DEV_HOLD_SUSPEND_WLAN) {
 		hdd_adapter_for_each_active_link_info(adapter, link_info) {
-			if (wlan_hdd_validate_vdev_id(link_info->vdev_id) ||
-			    !link_info->vdev ||
-			    !ucfg_pmo_is_vdev_connected(link_info->vdev))
+			if (wlan_hdd_validate_vdev_id(link_info->vdev_id))
 				continue;
 
 			if (adapter->device_mode == QDF_STA_MODE)
 				status = hdd_enable_default_pkt_filters(
 						hdd_ctx, link_info->vdev_id);
 
-			hdd_enable_gtk_offload(link_info->vdev);
-
+			/* Configure supported OffLoads */
+			hdd_enable_host_offloads(adapter, pmo_apps_suspend);
+			hdd_update_conn_state_mask(adapter, &conn_state_mask);
 		}
-		/* Configure supported OffLoads */
-		hdd_enable_host_offloads(adapter, pmo_apps_suspend);
 		hdd_adapter_dev_put_debug(adapter, NET_DEV_HOLD_SUSPEND_WLAN);
 	}
 
@@ -1995,6 +1995,8 @@ QDF_STATUS hdd_wlan_shutdown(void)
 	if (soc)
 		cdp_flush_cache_rx_queue(soc);
 
+	/* De-register the HDD callbacks */
+	hdd_deregister_cb(hdd_ctx);
 
 	hdd_wlan_stop_modules(hdd_ctx, false);
 
@@ -2235,7 +2237,6 @@ QDF_STATUS hdd_wlan_re_init(void)
 				      hdd_chip_pwr_save_fail_detected_cb);
 
 	hdd_restore_thermal_mitigation_config(hdd_ctx);
-	hdd_restore_ddr_bw_mitigation_config(hdd_ctx);
 	hdd_restore_sar_config(hdd_ctx);
 
 	hdd_send_default_scan_ies(hdd_ctx);
@@ -3237,18 +3238,10 @@ static int __wlan_hdd_cfg80211_set_txpower(struct wiphy *wiphy,
 	return 0;
 }
 
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(6, 17, 0))
-int wlan_hdd_cfg80211_set_txpower(struct wiphy *wiphy,
-				  struct wireless_dev *wdev,
-				  int radio_idx,
-				  enum nl80211_tx_power_setting type,
-				  int mbm)
-#else
 int wlan_hdd_cfg80211_set_txpower(struct wiphy *wiphy,
 				  struct wireless_dev *wdev,
 				  enum nl80211_tx_power_setting type,
 				  int mbm)
-#endif
 {
 	struct osif_psoc_sync *psoc_sync;
 	int errno;
@@ -3511,22 +3504,9 @@ end:
 	return ret;
 }
 
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(6, 17, 0))
 int wlan_hdd_cfg80211_get_txpower(struct wiphy *wiphy,
-				  struct wireless_dev *wdev,
-				  int radio_idx,
-				  unsigned int link_id,
-				  int *dbm)
-#elif (LINUX_VERSION_CODE >= KERNEL_VERSION(6, 13, 0))
-int wlan_hdd_cfg80211_get_txpower(struct wiphy *wiphy,
-				  struct wireless_dev *wdev,
-				  unsigned int link_id,
-				  int *dbm)
-#else
-int wlan_hdd_cfg80211_get_txpower(struct wiphy *wiphy,
-				  struct wireless_dev *wdev,
-				  int *dbm)
-#endif
+					 struct wireless_dev *wdev,
+					 int *dbm)
 {
 	struct osif_psoc_sync *psoc_sync;
 	int errno;
@@ -3558,8 +3538,6 @@ hdd_convert_opm_mode(enum qca_wlan_vendor_opm_mode opm_mode)
 		return WMA_STA_PS_OPM_AGGRESSIVE;
 	case QCA_WLAN_VENDOR_OPM_MODE_USER_DEFINED:
 		return WMA_STA_PS_USER_DEF;
-	case QCA_WLAN_VENDOR_OPM_MODE_LATENCY_BASED:
-		return WMA_STA_PS_LATENCY_DEF;
 	default:
 		hdd_err("Invalid opm_mode: %d", opm_mode);
 		return WMA_STA_PS_OPM_CONSERVATIVE;
@@ -3579,7 +3557,7 @@ int hdd_set_power_config(struct hdd_context *hddctx,
 		return -EINVAL;
 	}
 
-	if (*opm_mode > QCA_WLAN_VENDOR_OPM_MODE_LATENCY_BASED ||
+	if (*opm_mode > QCA_WLAN_VENDOR_OPM_MODE_USER_DEFINED ||
 	    *opm_mode < QCA_WLAN_VENDOR_OPM_MODE_DISABLE) {
 		hdd_err("invalid power value: %d", *opm_mode);
 		return -EINVAL;
@@ -3601,18 +3579,10 @@ int hdd_set_power_config(struct hdd_context *hddctx,
 }
 
 int hdd_set_power_config_params(struct hdd_context *hddctx,
-				struct hdd_adapter *adapter, uint16_t ps_ito,
-				uint8_t ps_opm_level, uint16_t spec_wake)
+				struct hdd_adapter *adapter,
+				uint16_t ps_ito, uint16_t spec_wake)
 {
 	QDF_STATUS status;
-
-	status =
-	      wma_set_power_config_opm_level(adapter->deflink->vdev_id,
-					     ps_opm_level);
-	if (status != QDF_STATUS_SUCCESS) {
-		hdd_err("failed to configure opm level: %d", status);
-		return -EINVAL;
-	}
 
 	status = wma_set_power_config_ito(adapter->deflink->vdev_id, ps_ito);
 	if (status != QDF_STATUS_SUCCESS) {

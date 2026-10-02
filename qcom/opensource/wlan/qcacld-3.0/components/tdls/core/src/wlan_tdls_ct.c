@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2017-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+ * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -41,21 +41,13 @@ bool tdls_is_vdev_authenticated(struct wlan_objmgr_vdev *vdev)
 
 	peer = wlan_objmgr_vdev_try_get_bsspeer(vdev, WLAN_TDLS_NB_ID);
 	if (!peer) {
-		tdls_err("BSS peer for vdev %d is null",
-			 wlan_vdev_get_id(vdev));
+		tdls_err("peer is null");
 		return false;
 	}
 
 	is_authenticated = wlan_peer_mlme_get_auth_state(peer);
 	wlan_objmgr_peer_release_ref(peer, WLAN_TDLS_NB_ID);
-
 	return is_authenticated;
-}
-
-bool tdls_is_vdev_allowed_to_tx(struct wlan_objmgr_vdev *vdev)
-{
-	return (wlan_vdev_is_up(vdev) == QDF_STATUS_SUCCESS) &&
-		tdls_is_vdev_authenticated(vdev);
 }
 
 /**
@@ -1480,7 +1472,7 @@ static QDF_STATUS tdls_delete_all_tdls_peers_flush_cb(struct scheduler_msg *msg)
  * Return: QDF_STATUS
  */
 QDF_STATUS tdls_delete_all_tdls_peers(struct wlan_objmgr_vdev *vdev,
-				      struct tdls_soc_priv_obj *tdls_soc)
+					  struct tdls_soc_priv_obj *tdls_soc)
 {
 	struct wlan_objmgr_peer *peer;
 	struct tdls_del_all_tdls_peers *del_msg;
@@ -1658,7 +1650,6 @@ void tdls_teardown_connections(struct tdls_link_teardown *tdls_teardown)
 					   WLAN_VDEV_FEXT2_MLO_STA_TDLS);
 
 	tdls_disable_offchan_and_teardown_links(tdls_vdev);
-	tdls_timers_stop(tdls_vdev_obj);
 	qdf_event_set(&tdls_vdev_obj->tdls_teardown_comp);
 fail_tdls_vdev:
 	wlan_objmgr_vdev_release_ref(tdls_vdev, WLAN_TDLS_SB_ID);

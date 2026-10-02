@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2014-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+ * Copyright (c) 2021-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -39,7 +39,6 @@
 #include "osif_psoc_sync.h"
 #include "wlan_osif_features.h"
 #include "wlan_p2p_ucfg_api.h"
-#include "wlan_mlo_mgr_public_api.h"
 
 #define REG_RULE_2412_2462    REG_RULE(2412-10, 2462+10, 40, 0, 20, 0)
 
@@ -1696,7 +1695,6 @@ static void hdd_country_change_update_sta(struct hdd_context *hdd_ctx)
 	struct wlan_hdd_link_info *link_info;
 	enum qca_wlan_vendor_phy_mode vendor_phy_mode =
 						QCA_WLAN_VENDOR_PHY_MODE_AUTO;
-	QDF_STATUS status;
 
 	pdev = hdd_ctx->pdev;
 
@@ -1749,15 +1747,10 @@ static void hdd_country_change_update_sta(struct hdd_context *hdd_ctx)
 					hdd_debug("changed: phy %d, freq %d, width %d",
 						  phy_changed, freq_changed,
 						  width_changed);
-					status = wlan_mlo_mgr_link_switch_defer_disconnect_req(
-							link_info->vdev,
-							CM_OSIF_DISCONNECT,
-							REASON_UNSPEC_FAILURE);
-					if (status != QDF_STATUS_E_ALREADY && QDF_IS_STATUS_ERROR(status))
-						wlan_hdd_cm_issue_disconnect(
-								link_info,
-								REASON_UNSPEC_FAILURE,
-								false);
+					wlan_hdd_cm_issue_disconnect(
+							link_info,
+							REASON_UNSPEC_FAILURE,
+							false);
 					hdd_set_vdev_phy_mode(adapter,
 							      vendor_phy_mode);
 					sta_ctx->reg_phymode = csr_phy_mode;
@@ -1802,12 +1795,10 @@ hdd_restart_sap_with_new_phymode(struct wlan_hdd_link_info *link_info,
 	hostapd_state = WLAN_HDD_GET_HOSTAP_STATE_PTR(link_info);
 	sap_ctx = WLAN_HDD_GET_SAP_CTX_PTR(link_info);
 
-	mutex_lock(&hdd_ctx->sap_lock);
 	if (!test_bit(SOFTAP_BSS_STARTED, &link_info->link_flags)) {
 		sap_config->sap_orig_hw_mode = sap_config->SapHw_mode;
 		sap_config->SapHw_mode = csr_phy_mode;
 		hdd_err("Can't restart AP because it is not started");
-		mutex_unlock(&hdd_ctx->sap_lock);
 		return;
 	}
 
@@ -1815,14 +1806,12 @@ hdd_restart_sap_with_new_phymode(struct wlan_hdd_link_info *link_info,
 	status = wlansap_stop_bss(sap_ctx);
 	if (!QDF_IS_STATUS_SUCCESS(status)) {
 		hdd_err("SAP Stop Bss fail");
-		mutex_unlock(&hdd_ctx->sap_lock);
 		return;
 	}
 	status = qdf_wait_single_event(&hostapd_state->qdf_stop_bss_event,
 				       SME_CMD_STOP_BSS_TIMEOUT);
 	if (!QDF_IS_STATUS_SUCCESS(status)) {
 		hdd_err("SAP Stop timeout");
-		mutex_unlock(&hdd_ctx->sap_lock);
 		return;
 	}
 
@@ -1832,6 +1821,7 @@ hdd_restart_sap_with_new_phymode(struct wlan_hdd_link_info *link_info,
 	sap_config->sap_orig_hw_mode = sap_config->SapHw_mode;
 	sap_config->SapHw_mode = csr_phy_mode;
 
+	mutex_lock(&hdd_ctx->sap_lock);
 	qdf_event_reset(&hostapd_state->qdf_event);
 	status = wlansap_start_bss(sap_ctx, hdd_hostapd_sap_event_cb,
 				   sap_config);
@@ -2017,10 +2007,6 @@ static void hdd_regulatory_dyn_cbk(struct wlan_objmgr_psoc *psoc,
 	bool reg_flag;
 
 	pdev_priv = wlan_pdev_get_ospriv(pdev);
-	if (!pdev_priv) {
-		hdd_err("pdev_priv null");
-		return;
-	}
 	wiphy = pdev_priv->wiphy;
 	hdd_ctx = wiphy_priv(wiphy);
 

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2024-2025 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2024 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -395,7 +395,7 @@ wlan_dp_stc_find_ul_flow(struct wlan_dp_stc *dp_stc, uint16_t rx_flow_id,
 		if (flow->flow_tuple_hash != rx_flow_tuple_hash)
 			continue;
 
-		dp_info("STC: Found Bi-Di flow tx %d (mdata %llu) rx %d",
+		dp_info("STC: Found Bi-Di flow tx %d (mdata 0x%x) rx %d",
 			flow_id, flow->guid, rx_flow_id);
 		*tx_flow_id = flow_id;
 		*tx_flow_metadata = flow->guid;
@@ -2040,14 +2040,13 @@ QDF_STATUS wlan_dp_stc_attach(struct wlan_dp_psoc_context *dp_ctx)
 
 	if (!wlan_dp_cfg_is_stc_enabled(&dp_ctx->dp_cfg)) {
 		dp_info("STC: feature not enabled via cfg");
-		dp_ctx->dp_stc = NULL;
-		return QDF_STATUS_E_NOSUPPORT;
+		return QDF_STATUS_SUCCESS;
 	}
 
 	if (!wlan_dp_stc_clients_available(dp_ctx)) {
 		dp_info("STC: No clients available, skip attach");
 		dp_ctx->dp_stc = NULL;
-		return QDF_STATUS_E_NOSUPPORT;
+		return QDF_STATUS_SUCCESS;
 	}
 
 	dp_info("STC: attach");

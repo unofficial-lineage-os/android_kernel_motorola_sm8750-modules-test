@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2012-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+ * Copyright (c) 2021-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -310,13 +310,6 @@ static bool hdd_check_and_fill_freq(uint32_t in_chan, qdf_freq_t *freq,
 		 WLAN_REG_IS_6GHZ_CHAN_FREQ(in_chan))
 		*freq = in_chan;
 	else
-		return false;
-
-	hdd_debug("channel num: %d, freq: %d", in_chan, *freq);
-
-	/* freq = 0 is a valid input, so return true */
-	if (*freq &&
-	    !wlan_reg_is_freq_enabled(pdev, *freq, REG_CURRENT_PWR_MODE))
 		return false;
 
 	return true;
@@ -3307,15 +3300,11 @@ static int drv_cmd_set_suspend_mode(struct wlan_hdd_link_info *link_info,
 		return -EINVAL;
 	}
 
-	hdd_debug("idle_monitor:%d, configure apf per screen state = %d",
-		  idle_monitor,
-		  ucfg_pmo_is_configure_apf_per_screen_state(hdd_ctx->psoc));
-	if (ucfg_pmo_is_configure_apf_per_screen_state(hdd_ctx->psoc)) {
-		if (idle_monitor == 0)
-			hdd_disable_active_apf_mode(link_info);
-		else if (idle_monitor == 1)
-			hdd_enable_active_apf_mode(link_info);
-	}
+	hdd_debug("idle_monitor:%d", idle_monitor);
+	if (idle_monitor == 0)
+		hdd_disable_active_apf_mode(link_info);
+	else if (idle_monitor == 1)
+		hdd_enable_active_apf_mode(link_info);
 
 	status = ucfg_pmo_tgt_psoc_send_idle_roam_suspend_mode(hdd_ctx->psoc,
 							       idle_monitor);
