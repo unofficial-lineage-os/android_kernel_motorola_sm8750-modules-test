@@ -694,6 +694,12 @@ int dsi_panel_set_backlight(struct dsi_panel *panel, u32 bl_lvl)
 	if (panel->host_config.ext_bridge_mode)
 		return 0;
 
+	/* leap: while HBM is applied the panel stays at the hbm-on set's DBV (stock ignores the slider too);
+	 * remember the level so that HBM off can restore it */
+	panel->hbm_bl_lvl = bl_lvl;
+	if (panel->hbm_applied == 1 && bl_lvl)
+		return 0;
+
 	DSI_DEBUG("backlight type:%d lvl:%d\n", bl->type, bl_lvl);
 	switch (bl->type) {
 	case DSI_BACKLIGHT_WLED:
@@ -4162,6 +4168,37 @@ static void dsi_panel_free_dc_cmds(struct dsi_panel *panel)
 	panel->dc_supported = false;
 }
 
+static void dsi_panel_parse_hbm_cmds(struct dsi_panel *panel)
+{
+	struct dsi_parser_utils *utils = &panel->utils;
+	int rc_off, rc_on;
+
+	panel->hbm_state = 0;
+	panel->hbm_applied = 0;
+	rc_off = dsi_panel_parse_named_cmd_set(&panel->hbm_cmds[0], "qcom,mdss-dsi-hbm-off-command",
+			"qcom,mdss-dsi-hbm-off-command-state", utils);
+	rc_on = dsi_panel_parse_named_cmd_set(&panel->hbm_cmds[1], "qcom,mdss-dsi-hbm-on-command",
+			"qcom,mdss-dsi-hbm-on-command-state", utils);
+	panel->hbm_supported = !rc_off && !rc_on;
+	DSI_INFO("[%s] HBM %s\n", panel->name,
+			panel->hbm_supported ? "supported" : "not described in DT");
+}
+
+static void dsi_panel_free_hbm_cmds(struct dsi_panel *panel)
+{
+	int i;
+
+	for (i = 0; i < 2; i++) {
+		if (!panel->hbm_cmds[i].cmds)
+			continue;
+		dsi_panel_destroy_cmd_packets(&panel->hbm_cmds[i]);
+		dsi_panel_dealloc_cmd_packets(&panel->hbm_cmds[i]);
+		panel->hbm_cmds[i].cmds = NULL;
+		panel->hbm_cmds[i].count = 0;
+	}
+	panel->hbm_supported = false;
+}
+
 /* same transfer path and flags as dsi_panel_tx_cmd_set(); caller holds panel_lock */
 static int dsi_panel_tx_named_cmd_set(struct dsi_panel *panel, struct dsi_panel_cmd_set *set)
 {
@@ -4182,12 +4219,58 @@ static int dsi_panel_tx_named_cmd_set(struct dsi_panel *panel, struct dsi_panel_
 	return 0;
 }
 
+/*
+ * leap: the hbm-on set writes 5Fh=1 and the HBM DBV (51h); while it is applied dsi_panel_set_backlight() only
+ * records levels. The hbm-off set writes 5Fh=0 and a fixed DBV, so the recorded level is restored afterwards, as
+ * stock does. Caller holds panel_lock.
+ */
+static int dsi_panel_apply_hbm(struct dsi_panel *panel, u32 on)
+{
+	int rc = dsi_panel_tx_named_cmd_set(panel, &panel->hbm_cmds[on]);
+
+	if (rc)
+		return rc;
+	panel->hbm_applied = on;
+	if (!on && panel->hbm_bl_lvl)
+		rc = dsi_panel_set_backlight(panel, panel->hbm_bl_lvl);
+	return rc;
+}
+
+static bool dsi_panel_is_lp(struct dsi_panel *panel)
+{
+	return panel->power_mode == SDE_MODE_DPMS_LP1 || panel->power_mode == SDE_MODE_DPMS_LP2;
+}
+
+static int dsi_panel_set_hbm(struct dsi_panel *panel, u32 value)
+{
+	int rc = 0;
+
+	if (!panel->hbm_supported)
+		return -EOPNOTSUPP;
+
+	/* 2 is fingerprint HBM on stock; leap has no set for it and stock clamps it to on */
+	value = value ? 1 : 0;
+	mutex_lock(&panel->panel_lock);
+	panel->hbm_state = value;
+	if (!dsi_panel_initialized(panel) || dsi_panel_is_lp(panel) ||
+	    panel->hbm_applied == (int)value)
+		goto out;	/* dsi_panel_enable() / dsi_panel_set_nolp() apply it */
+
+	rc = dsi_panel_apply_hbm(panel, value);
+	DSI_INFO("[%s] HBM %s, rc=%d\n", panel->name, value ? "on" : "off", rc);
+out:
+	mutex_unlock(&panel->panel_lock);
+	return rc;
+}
+
 int dsi_panel_set_param(struct dsi_panel *panel, u32 param_id, u32 value)
 {
 	int rc = 0;
 
 	if (!panel)
 		return -EINVAL;
+	if (param_id == DSI_PANEL_PARAM_HBM)
+		return dsi_panel_set_hbm(panel, value);
 	if (param_id != DSI_PANEL_PARAM_DC || !panel->dc_supported)
 		return -EOPNOTSUPP;
 
@@ -4349,6 +4432,7 @@ struct dsi_panel *dsi_panel_get(struct device *parent,
 		DSI_ERR("failed to parse misc features, rc=%d\n", rc);
 
 	dsi_panel_parse_dc_cmds(panel);	/* leap: Motorola DC dimming */
+	dsi_panel_parse_hbm_cmds(panel);	/* leap: Motorola HBM */
 
 	rc = dsi_panel_parse_hdr_config(panel);
 	if (rc)
@@ -4400,6 +4484,7 @@ void dsi_panel_put(struct dsi_panel *panel)
 
 	kfree(panel->avr_caps.avr_step_fps_list);
 	dsi_panel_free_dc_cmds(panel);
+	dsi_panel_free_hbm_cmds(panel);
 	kfree(panel);
 }
 
@@ -5156,6 +5241,10 @@ int dsi_panel_set_lp1(struct dsi_panel *panel)
 	if (!panel->panel_initialized)
 		goto exit;
 
+	/* leap: AOD never runs in HBM; dsi_panel_set_nolp() re-applies it */
+	if (panel->hbm_applied == 1)
+		dsi_panel_apply_hbm(panel, 0);
+
 	/*
 	 * Consider LP1->LP2->LP1.
 	 * If the panel is already in LP mode, do not need to
@@ -5188,6 +5277,9 @@ int dsi_panel_set_lp2(struct dsi_panel *panel)
 	mutex_lock(&panel->panel_lock);
 	if (!panel->panel_initialized)
 		goto exit;
+
+	if (panel->hbm_applied == 1)	/* leap: see dsi_panel_set_lp1() */
+		dsi_panel_apply_hbm(panel, 0);
 
 	rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_SET_LP2, false);
 	if (rc)
@@ -5246,6 +5338,13 @@ int dsi_panel_set_nolp(struct dsi_panel *panel)
 	if (rc)
 		DSI_ERR("[%s] failed to send DSI_CMD_SET_NOLP cmd, rc=%d\n",
 		       panel->name, rc);
+
+	/* leap: back at full power; restore HBM if it is still requested */
+	if (!rc && panel->hbm_supported && panel->hbm_state && panel->hbm_applied != 1) {
+		int hbm_rc = dsi_panel_apply_hbm(panel, 1);
+
+		DSI_INFO("[%s] HBM restored after LP, rc=%d\n", panel->name, hbm_rc);
+	}
 exit:
 	mutex_unlock(&panel->panel_lock);
 	return rc;
@@ -5701,6 +5800,14 @@ int dsi_panel_enable(struct dsi_panel *panel)
 		DSI_INFO("[%s] DC dimming restored on enable, rc=%d\n", panel->name, dc_rc);
 	}
 
+	/* leap: the panel powers up with HBM off; restore the requested state */
+	panel->hbm_applied = 0;
+	if (panel->hbm_supported && panel->hbm_state) {
+		int hbm_rc = dsi_panel_apply_hbm(panel, 1);
+
+		DSI_INFO("[%s] HBM restored on enable, rc=%d\n", panel->name, hbm_rc);
+	}
+
 error:
 	mutex_unlock(&panel->panel_lock);
 	return rc;
@@ -5791,6 +5898,7 @@ int dsi_panel_disable(struct dsi_panel *panel)
 	}
 	panel->panel_initialized = false;
 	panel->power_mode = SDE_MODE_DPMS_OFF;
+	panel->hbm_applied = 0;
 
 	mutex_unlock(&panel->panel_lock);
 	return rc;

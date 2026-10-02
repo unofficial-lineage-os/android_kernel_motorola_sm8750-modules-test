@@ -239,6 +239,14 @@ struct dsi_panel {
 	bool dc_supported;
 	u32 dc_state;
 	int dc_applied;
+	/* leap: high brightness mode (param 0, LiveDisplay "Outdoor mode"). hbm_cmds[0]=off, [1]=on
+	 * (qcom,mdss-dsi-hbm-off/on-command). hbm_state is the requested state, hbm_applied the panel's. While
+	 * applied, backlight updates are only recorded in hbm_bl_lvl; HBM off restores that level. */
+	struct dsi_panel_cmd_set hbm_cmds[2];
+	bool hbm_supported;
+	u32 hbm_state;
+	int hbm_applied;
+	u32 hbm_bl_lvl;
 	struct drm_panel drm_panel;
 	struct mipi_dsi_host *host;
 	struct device *parent;
@@ -388,6 +396,7 @@ int dsi_panel_set_nolp(struct dsi_panel *panel);
 int dsi_panel_prepare(struct dsi_panel *panel);
 
 /* leap: Motorola panel features; param ids as sent by the displaypanel HAL */
+#define DSI_PANEL_PARAM_HBM 0
 #define DSI_PANEL_PARAM_DC 3
 int dsi_panel_set_param(struct dsi_panel *panel, u32 param_id, u32 value);
 
