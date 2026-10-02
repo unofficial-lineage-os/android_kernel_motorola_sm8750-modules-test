@@ -38,6 +38,7 @@
 #include <linux/spinlock.h>
 #include <linux/st21nfc.h>
 #include <linux/of_gpio.h>
+#include <linux/pinctrl/consumer.h>
 #include <linux/clk.h>
 
 #ifdef QCOM_NFC_CLK_REQ_WAKE_SET
@@ -664,18 +665,29 @@ static int nfc_parse_dt(struct device *dev, struct st21nfc_platform_data *pdata)
 		return -ENODEV;
 	}
 
+	/*
+	 * leap: Motorola's leap DT is written for ST's newer driver (stock stm_nfc_i2c.ko) and uses the
+	 * standard "<name>-gpios" binding; fall back to it when the legacy "st,<name>_gpio" is absent.
+	 * Both drivers expose the same /dev/st21nfc misc device and core ioctls the ST HAL uses.
+	 */
 	pdata->reset_gpio = of_get_named_gpio(np, "st,reset_gpio", 0);
+	if (!gpio_is_valid(pdata->reset_gpio))
+		pdata->reset_gpio = of_get_named_gpio(np, "reset-gpios", 0);
 	if ((!gpio_is_valid(pdata->reset_gpio))) {
 		pr_err("[dsc]fail to get reset_gpio\n");
 		return -EINVAL;
 	}
 	pdata->irq_gpio = of_get_named_gpio(np, "st,irq_gpio", 0);
+	if (!gpio_is_valid(pdata->irq_gpio))
+		pdata->irq_gpio = of_get_named_gpio(np, "irq-gpios", 0);
 	if ((!gpio_is_valid(pdata->irq_gpio))) {
 		pr_err("[dsc]fail to get irq_gpio\n");
 		return -EINVAL;
 	}
 
 	pdata->clkreq_gpio = of_get_named_gpio(np, "st,clkreq_gpio", 0);
+	if (!gpio_is_valid(pdata->clkreq_gpio))
+		pdata->clkreq_gpio = of_get_named_gpio(np, "clkreq-gpios", 0);
 	if ((!gpio_is_valid(pdata->clkreq_gpio)))
 		pr_err("[dsc][OPTIONAL] fail to get clkreq_gpio\n");
 
@@ -734,6 +746,17 @@ static int st21nfc_probe(struct i2c_client *client,
 		ret = nfc_parse_dt(&client->dev, platform_data);
 		if (ret)
 			return ret;
+		{
+			/* leap: leap's DT names its pin states "nfc_active"/"nfc_suspend" (newer ST driver) */
+			struct pinctrl *pc = devm_pinctrl_get(&client->dev);
+			struct pinctrl_state *ps;
+
+			if (!IS_ERR_OR_NULL(pc)) {
+				ps = pinctrl_lookup_state(pc, "nfc_active");
+				if (!IS_ERR_OR_NULL(ps) && pinctrl_select_state(pc, ps))
+					pr_warn("[dsc] nfc_active pinctrl select failed\n");
+			}
+		}
 	} else {
 		platform_data = client->dev.platform_data;
 		pr_info("No st21nfc DTS\n");
@@ -819,6 +842,8 @@ static int st21nfc_probe(struct i2c_client *client,
 			}
 #ifdef QCOM_NFC_CLK_REQ_WAKE_SET
 			ret = of_property_read_u32_index(client->dev.of_node, "st,clkreq_gpio", 1, &clk_req_gpio);
+			if (ret < 0) /* leap: standard binding */
+				ret = of_property_read_u32_index(client->dev.of_node, "clkreq-gpios", 1, &clk_req_gpio);
 			if (ret < 0) {
 				pr_err("%s Failed to read clkreq gpio number\n", __func__);
 			}
