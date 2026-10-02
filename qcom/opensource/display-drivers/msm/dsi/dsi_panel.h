@@ -236,6 +236,10 @@ struct dsi_panel_idle {
 	atomic_t kick_seq;
 	u32 entries;
 	u32 exits;
+	u32 blockers;				/* last logged dsi_panel_idle_blockers() mask */
+	unsigned long last_note;		/* jiffies of the last "kicks keep coming" line */
+	int note_seq;
+	u32 notes;
 };
 
 struct dsi_panel {

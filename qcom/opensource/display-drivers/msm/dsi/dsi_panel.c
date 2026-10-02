@@ -4249,16 +4249,33 @@ static bool dsi_panel_idle_enabled(struct dsi_panel *panel)
 		(mode == 2 || (mode == 1 && panel->type && !strcmp(panel->type, "primary")));
 }
 
-/* caller holds panel_lock */
-static bool dsi_panel_idle_allowed(struct dsi_panel *panel)
+/* caller holds panel_lock; 0 = panel idle allowed, else one bit per reason (logged by the work) */
+static u32 dsi_panel_idle_blockers(struct dsi_panel *panel)
 {
 	struct dsi_display_mode *mode = panel->cur_mode;
+	u32 b = 0;
 
-	return dsi_panel_idle_enabled(panel) && dsi_panel_initialized(panel) && !panel->idle.suspended &&
-		!atomic_read(&panel->esd_recovery_pending) && !panel->dc_state && panel->hbm_applied != 1 &&
-		mode && mode->priv_info && (mode->priv_info->framerate_group & DSI_FRG_120HZ_BASED) &&
-		mode->priv_info->cmd_sets[DSI_CMD_SET_TIMING_SWITCH].count &&
-		panel->bl_config.bl_level >= READ_ONCE(panel_idle_min_bl);
+	if (!dsi_panel_idle_enabled(panel))
+		b |= BIT(0);
+	if (!dsi_panel_initialized(panel))
+		b |= BIT(1);
+	if (panel->idle.suspended)
+		b |= BIT(2);
+	if (atomic_read(&panel->esd_recovery_pending))
+		b |= BIT(3);
+	if (panel->dc_state)
+		b |= BIT(4);
+	if (panel->hbm_applied == 1)
+		b |= BIT(5);
+	if (!mode || !mode->priv_info)
+		b |= BIT(6);
+	else if (!(mode->priv_info->framerate_group & DSI_FRG_120HZ_BASED))
+		b |= BIT(7);
+	else if (!mode->priv_info->cmd_sets[DSI_CMD_SET_TIMING_SWITCH].count)
+		b |= BIT(8);
+	if (panel->bl_config.bl_level < READ_ONCE(panel_idle_min_bl))
+		b |= BIT(9);
+	return b;
 }
 
 /* caller holds panel_lock */
@@ -4280,14 +4297,37 @@ static void dsi_panel_idle_work(struct work_struct *work)
 	struct dsi_panel *panel = container_of(to_delayed_work(work), struct dsi_panel, idle.work);
 	struct dsi_panel_idle *idle = &panel->idle;
 	unsigned long due;
+	u32 blockers;
 	int seq, rc;
 
 	mutex_lock(&panel->panel_lock);
 	seq = atomic_read(&idle->kick_seq);
-	if (idle->active || !dsi_panel_idle_allowed(panel))
+	if (idle->active)
+		goto out;
+	blockers = dsi_panel_idle_blockers(panel);
+	if (blockers != idle->blockers) {
+		struct dsi_display_mode *mode = panel->cur_mode;
+
+		idle->blockers = blockers;
+		DSI_INFO("[%s] panel idle %s 0x%x (bl %u, mode %u Hz group 0x%x)\n", panel->name,
+				blockers ? "blocked:" : "allowed", blockers, panel->bl_config.bl_level,
+				mode ? mode->timing.refresh_rate : 0,
+				mode && mode->priv_info ? mode->priv_info->framerate_group : 0);
+	}
+	if (blockers)
 		goto out;	/* the next kick re-arms us */
 	due = READ_ONCE(idle->last_kick) + msecs_to_jiffies(READ_ONCE(panel_idle_delay_ms));
 	if (time_before(jiffies, due)) {
+		/* frames or backlight changes keep coming; say how many, rarely */
+		if (time_after(jiffies, idle->last_note + 10 * HZ) && idle->notes < DSI_PANEL_IDLE_LOG) {
+			if (idle->last_note)
+				DSI_INFO("[%s] panel idle postponed: %d kicks in the last %u ms\n", panel->name,
+						seq - idle->note_seq,
+						jiffies_to_msecs(jiffies - idle->last_note));
+			idle->last_note = jiffies;
+			idle->note_seq = seq;
+			idle->notes++;
+		}
 		mod_delayed_work(system_unbound_wq, &idle->work, due - jiffies);
 		goto out;
 	}
@@ -4470,6 +4510,7 @@ struct dsi_panel *dsi_panel_get(struct device *parent,
 	panel->parent = parent;
 	panel->type = type;
 	INIT_DELAYED_WORK(&panel->idle.work, dsi_panel_idle_work);	/* leap: panel idle */
+	panel->idle.blockers = U32_MAX;	/* log the first evaluation */
 
 	dsi_panel_update_util(panel, parser_node);
 	utils = &panel->utils;
