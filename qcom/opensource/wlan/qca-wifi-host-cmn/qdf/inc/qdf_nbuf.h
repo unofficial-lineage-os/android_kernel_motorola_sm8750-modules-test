@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2014-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+ * Copyright (c) 2021-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -233,8 +233,6 @@ enum wsc_op_code {
 #define TSO_DEBUG(fmt, args ...)
 #endif
 
-#define QDF_NBUF_SW_TSO_DEV_SCRATCH_VAL	0xCADB
-
 #define IEEE80211_AMPDU_FLAG    0x01
 
 #define IEEE80211_AMSDU_FLAG    0x02
@@ -243,20 +241,6 @@ enum wsc_op_code {
 #define QDF_MON_STATUS_MPDU_FCS_BMAP_NWORDS 8
 
 #define EHT_USER_INFO_LEN 4
-
-#define QDF_NBUF_DOT3_HEADER_SIZE		14
-#define QDF_NBUF_DOT11_LLC_SIZE			8
-#define QDF_NBUF_TRAC_DOT11_TYPE_OFFSET		6
-
-/* The 802.3 header is 14 bytes (Excluding preamble), while the 802.11 LLC
- * is only 8 bytes.Therefore the offsets has to be adjusted by taking
- * account for the difference in header and LLC sizes between 802.3
- * and 802.11 formats.
- */
-
-#define QDF_ADJUST_OFFSET_DOT3_TO_DOT11(offset) \
-	((offset) - QDF_NBUF_DOT3_HEADER_SIZE + \
-	  QDF_NBUF_DOT11_LLC_SIZE)
 
 /**
  * typedef qdf_nbuf_queue_t - Platform independent packet queue abstraction
@@ -275,8 +259,8 @@ typedef __qdf_nbuf_queue_t qdf_nbuf_queue_t;
 #define RADIOTAP_HE_FLAGS_LEN (12 + 1)
 #define RADIOTAP_HE_MU_FLAGS_LEN (12 + 1)
 #define RADIOTAP_HE_MU_OTHER_FLAGS_LEN (18 + 1)
-#define RADIOTAP_U_SIG_FLAGS_LEN (16 + 3)
-#define RADIOTAP_EHT_FLAGS_LEN (60 + 3)
+#define RADIOTAP_U_SIG_FLAGS_LEN (12 + 3)
+#define RADIOTAP_EHT_FLAGS_LEN (58 + 3)
 #define RADIOTAP_FIXED_HEADER_LEN 17
 #define RADIOTAP_HT_FLAGS_LEN 3
 #define RADIOTAP_AMPDU_STATUS_LEN (8 + 3)
@@ -633,8 +617,6 @@ struct mon_rx_status {
  * @enc_type: ecnryption type
  * @retried_msdu_count: retried msdu count
  * @mpdu_q: user mpdu_queue used for monitor
- * @ht_control: HT control information
- * @qos_queue_size: QoS control queue size
  */
 struct mon_rx_user_status {
 	uint32_t mcs:4,
@@ -706,8 +688,6 @@ struct mon_rx_user_status {
 	uint8_t enc_type;
 	uint16_t retried_msdu_count;
 	qdf_nbuf_queue_t mpdu_q;
-	uint32_t ht_control;
-	uint8_t qos_queue_size;
 };
 
 /**
@@ -1325,48 +1305,6 @@ qdf_nbuf_set_send_complete_flag(qdf_nbuf_t buf, bool flag)
 #define QDF_NBUF_QUEUE_WALK_SAFE(queue, var, tvar)	\
 		__qdf_nbuf_queue_walk_safe(queue, var, tvar)
 
-/**
- * qdf_is_pp_nbuf: Check if SKB memory is from page pool
- *
- * @nbuf: nbuf reference
- *
- * Return: True/False
- */
-static inline bool qdf_is_pp_nbuf(qdf_nbuf_t nbuf)
-{
-	return __qdf_is_pp_nbuf(nbuf);
-}
-
-/**
- * qdf_skip_dma_map_unmap: Check if DMA map/unmap needs to be skipped for nbuf
- *
- * @osdev: QDF device reference
- * @nbuf: nbuf reference
- * @dir: DMA direction
- *
- * Return: True/False
- */
-static inline bool
-qdf_skip_dma_map_unmap(qdf_device_t osdev, qdf_nbuf_t nbuf, qdf_dma_dir_t dir)
-{
-	return ((dir == QDF_DMA_TO_DEVICE && osdev->no_dma_map) ||
-		dir == QDF_DMA_FROM_DEVICE || dir == QDF_DMA_BIDIRECTIONAL) &&
-	       __qdf_is_pp_nbuf(nbuf) && QDF_NBUF_CB_PADDR(nbuf);
-}
-
-/**
- * qdf_nbuf_copy_header() - copy SKB header portion into another SKB
- * @to_skb: dest skb reference
- * @from_skb: source skb reference
- *
- * Return: void
- */
-static inline void
-qdf_nbuf_copy_header(struct sk_buff *to_skb, struct sk_buff *from_skb)
-{
-	return __qdf_nbuf_copy_header(to_skb, from_skb);
-}
-
 #ifdef NBUF_MAP_UNMAP_DEBUG
 /**
  * qdf_nbuf_map_check_for_leaks() - check for nbuf map leaks
@@ -1376,15 +1314,6 @@ qdf_nbuf_copy_header(struct sk_buff *to_skb, struct sk_buff *from_skb)
  * Returns: None
  */
 void qdf_nbuf_map_check_for_leaks(void);
-
-/**
- * qdf_nbuf_detect_track_list_corruption() - Detect nbuf tracker list corruption
- * @ptr: memory block pointer
- * @size: memory block size
- *
- * Returns: None
- */
-void qdf_nbuf_detect_track_list_corruption(void *ptr, uint32_t size);
 
 QDF_STATUS qdf_nbuf_map_debug(qdf_device_t osdev,
 			      qdf_nbuf_t buf,
@@ -1504,8 +1433,6 @@ QDF_STATUS qdf_nbuf_track_map_single_debug(qdf_device_t osdev, qdf_nbuf_t buf,
 
 static inline void qdf_nbuf_map_check_for_leaks(void) {}
 
-static inline void qdf_nbuf_detect_track_list_corruption(void *ptr, uint32_t size) {}
-
 static inline QDF_STATUS
 qdf_nbuf_map(qdf_device_t osdev, qdf_nbuf_t buf, qdf_dma_dir_t dir)
 {
@@ -1564,12 +1491,7 @@ qdf_nbuf_unmap_nbytes_single_paddr(qdf_device_t osdev, qdf_nbuf_t buf,
 				   int nbytes)
 {
 	__qdf_record_nbuf_nbytes(__qdf_nbuf_get_end_offset(buf), dir, false);
-
-	if (qdf_skip_dma_map_unmap(osdev, buf, dir))
-		dma_sync_single_for_cpu(osdev->dev, phy_addr,
-					nbytes, __qdf_dma_dir_to_os(dir));
-	else
-		__qdf_mem_unmap_nbytes_single(osdev, phy_addr, dir, nbytes);
+	__qdf_mem_unmap_nbytes_single(osdev, phy_addr, dir, nbytes);
 }
 
 static inline QDF_STATUS
@@ -3057,18 +2979,6 @@ static inline uint8_t *qdf_nbuf_data(qdf_nbuf_t buf)
 }
 
 /**
- * qdf_nbuf_nonlinear_data() - Return the address of the start of data within
- * a nonlinear nbuf
- * @buf: Network buffer
- *
- * Return: Data address
- */
-static inline uint8_t *qdf_nbuf_nonlinear_data(qdf_nbuf_t buf)
-{
-	return __qdf_nbuf_nonlinear_data(buf);
-}
-
-/**
  * qdf_nbuf_data_addr() - Return the address of skb->data
  * @buf: Network buffer
  *
@@ -4202,34 +4112,6 @@ bool qdf_nbuf_data_is_ipv4_pkt(uint8_t *data)
 }
 
 /**
- * qdf_nbuf_dot11_is_ipv4_pkt() - check if packet is a ipv4 packet or not
- * @buf:  buffer
- *
- * This api is for Tx packets.
- *
- * Return: true if packet is ipv4 packet
- */
-static inline
-bool qdf_nbuf_dot11_is_ipv4_pkt(qdf_nbuf_t buf)
-{
-	return __qdf_nbuf_dot11_data_is_ipv4_pkt(qdf_nbuf_nonlinear_data(buf));
-}
-
-/**
- * qdf_nbuf_dot11_data_is_ipv4_pkt() - check if packet is a ipv4 packet or not
- * @data:  data
- *
- * This api is for Tx packets.
- *
- * Return: true if packet is ipv4 packet
- */
-static inline
-bool qdf_nbuf_dot11_data_is_ipv4_pkt(uint8_t *data)
-{
-	return __qdf_nbuf_dot11_data_is_ipv4_pkt(data);
-}
-
-/**
  * qdf_nbuf_sock_is_valid_fullsock() - Check if socket is a full socket
  * @buf: Network buffer
  *
@@ -4313,36 +4195,6 @@ bool qdf_nbuf_data_is_ipv4_dhcp_pkt(uint8_t *data)
 }
 
 /**
- * qdf_nbuf_dot11_is_ipv4_dhcp_pkt() - check if packet is a dhcp packet or not
- * @buf:  buffer
- *
- * This api is for ipv4 packet.
- *
- * Return: true if packet is DHCP packet
- */
-static inline
-bool qdf_nbuf_dot11_is_ipv4_dhcp_pkt(qdf_nbuf_t buf)
-{
-	return __qdf_nbuf_dot11_data_is_ipv4_dhcp_pkt(
-	       qdf_nbuf_nonlinear_data(buf));
-}
-
-/**
- * qdf_nbuf_dot11_data_is_ipv4_dhcp_pkt() - check if it is DHCP packet.
- * @data: Pointer to DHCP packet data buffer
- *
- * This func. checks whether it is a DHCP packet or not.
- *
- * Return: true if it is a DHCP packet
- *         false if not
- */
-static inline
-bool qdf_nbuf_dot11_data_is_ipv4_dhcp_pkt(uint8_t *data)
-{
-	return __qdf_nbuf_dot11_data_is_ipv4_dhcp_pkt(data);
-}
-
-/**
  * qdf_nbuf_is_ipv6_mdns_pkt() - check if it is MDNS packet.
  * @buf: Pointer to packet data buffer
  *
@@ -4372,22 +4224,6 @@ bool qdf_nbuf_is_ipv6_dhcp_pkt(qdf_nbuf_t buf)
 }
 
 /**
- * qdf_nbuf_dot11_is_ipv6_dhcp_pkt() - check if it is DHCP packet.
- * @buf: Pointer to DHCP packet data buffer
- *
- * This func. checks whether it is a DHCP packet or not.
- *
- * Return: true if it is a DHCP packet
- *         false if not
- */
-static inline
-bool qdf_nbuf_dot11_is_ipv6_dhcp_pkt(qdf_nbuf_t buf)
-{
-	return __qdf_nbuf_dot11_data_is_ipv6_dhcp_pkt(
-	       qdf_nbuf_nonlinear_data(buf));
-}
-
-/**
  * qdf_nbuf_is_ipv4_eapol_pkt() - check if packet is a eapol packet or not
  * @buf:  buffer
  *
@@ -4414,36 +4250,6 @@ static inline
 bool qdf_nbuf_data_is_ipv4_eapol_pkt(uint8_t *data)
 {
 	return __qdf_nbuf_data_is_ipv4_eapol_pkt(data);
-}
-
-/**
- * qdf_nbuf_dot11_is_ipv4_eapol_pkt() - check if packet is a eapol packet or not
- * @buf:  buffer
- *
- * This api is for ipv4 packet.
- *
- * Return: true if packet is EAPOL packet
- */
-static inline
-bool qdf_nbuf_dot11_is_ipv4_eapol_pkt(qdf_nbuf_t buf)
-{
-	return __qdf_nbuf_dot11_data_is_ipv4_eapol_pkt(
-	       qdf_nbuf_nonlinear_data(buf));
-}
-
-/**
- * qdf_nbuf_dot11_data_is_ipv4_eapol_pkt() - check if it is EAPOL packet.
- * @data: Pointer to EAPOL packet data buffer
- *
- * This func. checks whether it is a EAPOL packet or not.
- *
- * Return: true if it is a EAPOL packet
- *         false if not
- */
-static inline
-bool qdf_nbuf_dot11_data_is_ipv4_eapol_pkt(uint8_t *data)
-{
-	return __qdf_nbuf_dot11_data_is_ipv4_eapol_pkt(data);
 }
 
 /**
@@ -4560,36 +4366,6 @@ bool qdf_nbuf_data_is_ipv4_arp_pkt(uint8_t *data)
 }
 
 /**
- * qdf_nbuf_dot11_is_ipv4_arp_pkt() - check if packet is a arp packet or not
- * @buf:  buffer
- *
- * This api is for ipv4 packet.
- *
- * Return: true if packet is ARP packet
- */
-static inline
-bool qdf_nbuf_dot11_is_ipv4_arp_pkt(qdf_nbuf_t buf)
-{
-	return __qdf_nbuf_dot11_data_is_ipv4_arp_pkt(
-	       qdf_nbuf_nonlinear_data(buf));
-}
-
-/**
- * qdf_nbuf_dot11_data_is_ipv4_arp_pkt() - check if it is ARP packet.
- * @data: Pointer to ARP packet data buffer
- *
- * This func. checks whether it is a ARP packet or not.
- *
- * Return: TRUE if it is a ARP packet
- *         FALSE if not
- */
-static inline
-bool qdf_nbuf_dot11_data_is_ipv4_arp_pkt(uint8_t *data)
-{
-	return __qdf_nbuf_dot11_data_is_ipv4_arp_pkt(data);
-}
-
-/**
  * qdf_nbuf_data_is_arp_req() - check if ARP packet is request.
  * @buf:  buffer
  *
@@ -4668,19 +4444,6 @@ bool qdf_nbuf_data_is_dns_query(qdf_nbuf_t buf)
 }
 
 /**
- * qdf_nbuf_dot11_data_is_dns_query() - check if skb data is a dns query
- * @buf: buffer
- *
- * Return: true if packet is dns query packet.
- *	   false otherwise.
- */
-static inline
-bool qdf_nbuf_dot11_data_is_dns_query(qdf_nbuf_t buf)
-{
-	return __qdf_nbuf_dot11_data_is_dns_query(qdf_nbuf_nonlinear_data(buf));
-}
-
-/**
  * qdf_nbuf_data_is_dns_response() - check if skb data is a dns response
  * @buf:  buffer
  *
@@ -4691,20 +4454,6 @@ static inline
 bool qdf_nbuf_data_is_dns_response(qdf_nbuf_t buf)
 {
 	return __qdf_nbuf_data_is_dns_response(qdf_nbuf_data(buf));
-}
-
-/**
- * qdf_nbuf_dot11_data_is_dns_response() - check if skb data is a dns response
- * @buf:  buffer
- *
- * Return: true if packet is dns response packet.
- *	   false otherwise.
- */
-static inline
-bool qdf_nbuf_dot11_data_is_dns_response(qdf_nbuf_t buf)
-{
-	return __qdf_nbuf_dot11_data_is_dns_response(
-	       qdf_nbuf_nonlinear_data(buf));
 }
 
 /**
@@ -4721,19 +4470,6 @@ bool qdf_nbuf_data_is_tcp_fin(qdf_nbuf_t buf)
 }
 
 /**
- * qdf_nbuf_dot11_data_is_tcp_fin() - check if skb data is a tcp fin
- * @buf:  buffer
- *
- * Return: true if packet is tcp fin packet.
- *	   false otherwise.
- */
-static inline
-bool qdf_nbuf_dot11_data_is_tcp_fin(qdf_nbuf_t buf)
-{
-	return __qdf_nbuf_dot11_data_is_tcp_fin(qdf_nbuf_nonlinear_data(buf));
-}
-
-/**
  * qdf_nbuf_data_is_tcp_fin_ack() - check if skb data is a tcp fin ack
  * @buf:  buffer
  *
@@ -4744,20 +4480,6 @@ static inline
 bool qdf_nbuf_data_is_tcp_fin_ack(qdf_nbuf_t buf)
 {
 	return __qdf_nbuf_data_is_tcp_fin_ack(qdf_nbuf_data(buf));
-}
-
-/**
- * qdf_nbuf_dot11_data_is_tcp_fin_ack() - check if skb data is a tcp fin ack
- * @buf:  buffer
- *
- * Return: true if packet is tcp fin ack packet.
- *	   false otherwise.
- */
-static inline
-bool qdf_nbuf_dot11_data_is_tcp_fin_ack(qdf_nbuf_t buf)
-{
-	return __qdf_nbuf_dot11_data_is_tcp_fin_ack(
-	       qdf_nbuf_nonlinear_data(buf));
 }
 
 /**
@@ -4774,19 +4496,6 @@ bool qdf_nbuf_data_is_tcp_syn(qdf_nbuf_t buf)
 }
 
 /**
- * qdf_nbuf_dot11_data_is_tcp_syn() - check if skb data is a tcp syn
- * @buf:  buffer
- *
- * Return: true if packet is tcp syn packet.
- *	   false otherwise.
- */
-static inline
-bool qdf_nbuf_dot11_data_is_tcp_syn(qdf_nbuf_t buf)
-{
-	return __qdf_nbuf_dot11_data_is_tcp_syn(qdf_nbuf_nonlinear_data(buf));
-}
-
-/**
  * qdf_nbuf_data_is_tcp_syn_ack() - check if skb data is a tcp syn ack
  * @buf:  buffer
  *
@@ -4797,20 +4506,6 @@ static inline
 bool qdf_nbuf_data_is_tcp_syn_ack(qdf_nbuf_t buf)
 {
 	return __qdf_nbuf_data_is_tcp_syn_ack(qdf_nbuf_data(buf));
-}
-
-/**
- * qdf_nbuf_dot11_data_is_tcp_syn_ack() - check if skb data is a tcp syn ack
- * @buf:  buffer
- *
- * Return: true if packet is tcp syn ack packet.
- *	   false otherwise.
- */
-static inline
-bool qdf_nbuf_dot11_data_is_tcp_syn_ack(qdf_nbuf_t buf)
-{
-	return __qdf_nbuf_dot11_data_is_tcp_syn_ack(
-	       qdf_nbuf_nonlinear_data(buf));
 }
 
 /**
@@ -4827,19 +4522,6 @@ bool qdf_nbuf_data_is_tcp_rst(qdf_nbuf_t buf)
 }
 
 /**
- * qdf_nbuf_dot11_data_is_tcp_rst() - check if skb data is a tcp rst
- * @buf:  buffer
- *
- * Return: true if packet is tcp rst packet.
- *	   false otherwise.
- */
-static inline
-bool qdf_nbuf_dot11_data_is_tcp_rst(qdf_nbuf_t buf)
-{
-	return __qdf_nbuf_dot11_data_is_tcp_rst(qdf_nbuf_nonlinear_data(buf));
-}
-
-/**
  * qdf_nbuf_data_is_tcp_ack() - check if skb data is a tcp ack
  * @buf:  buffer
  *
@@ -4850,19 +4532,6 @@ static inline
 bool qdf_nbuf_data_is_tcp_ack(qdf_nbuf_t buf)
 {
 	return __qdf_nbuf_data_is_tcp_ack(qdf_nbuf_data(buf));
-}
-
-/**
- * qdf_nbuf_dot11_data_is_tcp_ack() - check if skb data is a tcp ack
- * @buf:  buffer
- *
- * Return: true if packet is tcp ack packet.
- *	   false otherwise.
- */
-static inline
-bool qdf_nbuf_dot11_data_is_tcp_ack(qdf_nbuf_t buf)
-{
-	return __qdf_nbuf_dot11_data_is_tcp_ack(qdf_nbuf_nonlinear_data(buf));
 }
 
 /**
@@ -4961,21 +4630,6 @@ bool qdf_nbuf_is_ipv6_pkt(qdf_nbuf_t buf)
 	return __qdf_nbuf_data_is_ipv6_pkt(qdf_nbuf_data(buf));
 }
 
-/**
- * qdf_nbuf_dot11_is_ipv6_pkt() - check if it is IPV6 packet.
- * @buf: Pointer to IPV6 packet buffer
- *
- * This func. checks whether it is a IPV6 packet or not.
- *
- * Return: TRUE if it is a IPV6 packet
- *         FALSE if not
- */
-static inline
-bool qdf_nbuf_dot11_is_ipv6_pkt(qdf_nbuf_t buf)
-{
-	return __qdf_nbuf_dot11_data_is_ipv6_pkt(qdf_nbuf_nonlinear_data(buf));
-}
-
 #ifdef BIG_ENDIAN_HOST
 static inline
 uint16_t qdf_nbuf_get_ether_type(qdf_nbuf_t buf)
@@ -4987,21 +4641,6 @@ static inline
 uint16_t qdf_nbuf_get_ether_type(qdf_nbuf_t buf)
 {
 	return QDF_SWAP_U16(__qdf_nbuf_get_ether_type(qdf_nbuf_data(buf)));
-}
-#endif
-
-#ifdef BIG_ENDIAN_HOST
-static inline
-uint16_t qdf_nbuf_get_dot11_type(qdf_nbuf_t buf)
-{
-	return __qdf_nbuf_get_dot11_type(qdf_nbuf_nonlinear_data(buf));
-}
-#else
-static inline
-uint16_t qdf_nbuf_get_dot11_type(qdf_nbuf_t buf)
-{
-	return QDF_SWAP_U16(
-	       __qdf_nbuf_get_dot11_type(qdf_nbuf_nonlinear_data(buf)));
 }
 #endif
 
@@ -5036,21 +4675,6 @@ static inline
 bool qdf_nbuf_data_is_ipv6_pkt(uint8_t *data)
 {
 	return __qdf_nbuf_data_is_ipv6_pkt(data);
-}
-
-/**
- * qdf_nbuf_dot11_data_is_ipv6_pkt() - check if it is IPV6 packet.
- * @data: Pointer to IPV6 packet data buffer
- *
- * This func. checks whether it is a IPV6 packet or not.
- *
- * Return: TRUE if it is a IPV6 packet
- *         FALSE if not
- */
-static inline
-bool qdf_nbuf_dot11_data_is_ipv6_pkt(uint8_t *data)
-{
-	return __qdf_nbuf_dot11_data_is_ipv6_pkt(data);
 }
 
 /**
@@ -5114,36 +4738,6 @@ bool qdf_nbuf_data_is_icmp_pkt(uint8_t *data)
 }
 
 /**
- * qdf_nbuf_dot11_is_icmp_pkt() - check if it is IPV4 ICMP packet.
- * @buf: Pointer to IPV4 ICMP packet buffer
- *
- * This func. checks whether it is a ICMP packet or not.
- *
- * Return: TRUE if it is a ICMP packet
- *         FALSE if not
- */
-static inline
-bool qdf_nbuf_dot11_is_icmp_pkt(qdf_nbuf_t buf)
-{
-	return __qdf_nbuf_dot11_data_is_icmp_pkt(qdf_nbuf_nonlinear_data(buf));
-}
-
-/**
- * qdf_nbuf_dot11_data_is_icmp_pkt() - check if it is IPV4 ICMP packet.
- * @data: Pointer to IPV4 ICMP packet data buffer
- *
- * This func. checks whether it is a ICMP packet or not.
- *
- * Return: TRUE if it is a ICMP packet
- *         FALSE if not
- */
-static inline
-bool qdf_nbuf_dot11_data_is_icmp_pkt(uint8_t *data)
-{
-	return __qdf_nbuf_dot11_data_is_icmp_pkt(data);
-}
-
-/**
  * qdf_nbuf_is_icmpv6_pkt() - check if it is IPV6 ICMPV6 packet.
  * @buf: Pointer to IPV6 ICMPV6 packet buffer
  *
@@ -5171,37 +4765,6 @@ static inline
 bool qdf_nbuf_data_is_icmpv6_pkt(uint8_t *data)
 {
 	return __qdf_nbuf_data_is_icmpv6_pkt(data);
-}
-
-/**
- * qdf_nbuf_dot11_is_icmpv6_pkt() - check if it is IPV6 ICMPV6 packet.
- * @buf: Pointer to IPV6 ICMPV6 packet buffer
- *
- * This func. checks whether it is a ICMPV6 packet or not.
- *
- * Return: TRUE if it is a ICMPV6 packet
- *         FALSE if not
- */
-static inline
-bool qdf_nbuf_dot11_is_icmpv6_pkt(qdf_nbuf_t buf)
-{
-	return __qdf_nbuf_dot11_data_is_icmpv6_pkt(
-	       qdf_nbuf_nonlinear_data(buf));
-}
-
-/**
- * qdf_nbuf_dot11_data_is_icmpv6_pkt() - check if it is IPV6 ICMPV6 packet.
- * @data: Pointer to IPV6 ICMPV6 packet data buffer
- *
- * This func. checks whether it is a ICMPV6 packet or not.
- *
- * Return: TRUE if it is a ICMPV6 packet
- *         FALSE if not
- */
-static inline
-bool qdf_nbuf_dot11_data_is_icmpv6_pkt(uint8_t *data)
-{
-	return __qdf_nbuf_dot11_data_is_icmpv6_pkt(data);
 }
 
 /**
@@ -5265,37 +4828,6 @@ bool qdf_nbuf_data_is_ipv4_tcp_pkt(uint8_t *data)
 }
 
 /**
- * qdf_nbuf_dot11_is_ipv4_tcp_pkt() - check if it is IPV4 TCP packet.
- * @buf: Pointer to IPV4 TCP packet buffer
- *
- * This func. checks whether it is a IPV4 TCP packet or not.
- *
- * Return: TRUE if it is a IPV4 TCP packet
- *         FALSE if not
- */
-static inline
-bool qdf_nbuf_dot11_is_ipv4_tcp_pkt(qdf_nbuf_t buf)
-{
-	return __qdf_nbuf_dot11_data_is_ipv4_tcp_pkt(
-	       qdf_nbuf_nonlinear_data(buf));
-}
-
-/**
- * qdf_nbuf_dot11_data_is_ipv4_tcp_pkt() - check if it is IPV4 TCP packet.
- * @data: Pointer to IPV4 TCP packet data buffer
- *
- * This func. checks whether it is a IPV4 TCP packet or not.
- *
- * Return: TRUE if it is a IPV4 TCP packet
- *         FALSE if not
- */
-static inline
-bool qdf_nbuf_dot11_data_is_ipv4_tcp_pkt(uint8_t *data)
-{
-	return __qdf_nbuf_dot11_data_is_ipv4_tcp_pkt(data);
-}
-
-/**
  * qdf_nbuf_is_ipv6_udp_pkt() - check if it is IPV6 UDP packet.
  * @buf: Pointer to IPV6 UDP packet buffer
  *
@@ -5353,37 +4885,6 @@ static inline
 bool qdf_nbuf_data_is_ipv6_tcp_pkt(uint8_t *data)
 {
 	return __qdf_nbuf_data_is_ipv6_tcp_pkt(data);
-}
-
-/**
- * qdf_nbuf_dot11_is_ipv6_tcp_pkt() - check if it is IPV6 TCP packet.
- * @buf: Pointer to IPV6 TCP packet buffer
- *
- * This func. checks whether it is a IPV6 TCP packet or not.
- *
- * Return: TRUE if it is a IPV6 TCP packet
- *         FALSE if not
- */
-static inline
-bool qdf_nbuf_dot11_is_ipv6_tcp_pkt(qdf_nbuf_t buf)
-{
-	return __qdf_nbuf_dot11_data_is_ipv6_tcp_pkt(
-	       qdf_nbuf_nonlinear_data(buf));
-}
-
-/**
- * qdf_nbuf_data_dot11_is_ipv6_tcp_pkt() - check if it is IPV6 TCP packet.
- * @data: Pointer to IPV6 TCP packet data buffer
- *
- * This func. checks whether it is a IPV6 TCP packet or not.
- *
- * Return: TRUE if it is a IPV6 TCP packet
- *         FALSE if not
- */
-static inline
-bool qdf_nbuf_data_dot11_is_ipv6_tcp_pkt(uint8_t *data)
-{
-	return __qdf_nbuf_dot11_data_is_ipv6_tcp_pkt(data);
 }
 
 /**
@@ -5514,7 +5015,6 @@ bool qdf_nbuf_is_ipv4_v6_pure_tcp_ack(qdf_nbuf_t buf)
 /**
  * qdf_nbuf_is_arp_local() - check if it is local or no local arp
  * @buf: Network buffer
- * @local_ip: local IP address
  *
  * This func. checks whether packet is local or no local arp.
  *
@@ -5522,9 +5022,9 @@ bool qdf_nbuf_is_ipv4_v6_pure_tcp_ack(qdf_nbuf_t buf)
  *         FALSE if not
  */
 static inline
-bool qdf_nbuf_is_arp_local(qdf_nbuf_t buf, uint8_t *local_ip)
+bool qdf_nbuf_is_arp_local(qdf_nbuf_t buf)
 {
-	return __qdf_nbuf_is_arp_local(buf, local_ip);
+	return __qdf_nbuf_is_arp_local(buf);
 }
 
 /**
@@ -5553,27 +5053,6 @@ static inline void qdf_dmaaddr_to_32s(qdf_dma_addr_t dmaaddr,
 {
 	return __qdf_dmaaddr_to_32s(dmaaddr, lo, hi);
 }
-
-#ifdef WLAN_DP_ENABLE_SW_TSO
-/**
- * qdf_nbuf_sw_tso_prepare_nbuf_list() - function to divide a jumbo TSO
- * network buffer into small network buffers.
- *
- * @osdev: qdf device handle
- * @nbuf: Jumbo TSO network buffer
- * @head_nbuf: nbuf list
- * @tx_pp: TX page pool reference
- *
- * Return: QDF_STATUS
- */
-static inline QDF_STATUS
-qdf_nbuf_sw_tso_prepare_nbuf_list(qdf_device_t osdev, qdf_nbuf_t nbuf,
-				  qdf_nbuf_t *head_nbuf, qdf_page_pool_t tx_pp)
-{
-	return __qdf_nbuf_sw_tso_prepare_nbuf_list(osdev, nbuf,
-						   head_nbuf, tx_pp);
-}
-#endif
 
 /**
  * qdf_nbuf_get_tso_info() - function to divide a jumbo TSO
@@ -6209,17 +5688,6 @@ static inline void qdf_nbuf_set_hash(qdf_nbuf_t buf, uint32_t len)
 }
 
 /**
- * qdf_nbuf_get_hash() - set the hash of the buf
- * @buf: Network buf instance
- *
- * Return: Hash value
- */
-static inline uint32_t qdf_nbuf_get_hash(qdf_nbuf_t buf)
-{
-	return __qdf_nbuf_get_hash(buf);
-}
-
-/**
  * qdf_nbuf_set_sw_hash() - set the sw hash of the buf
  * @buf: Network buf instance
  * @len: len to be set
@@ -6290,6 +5758,18 @@ static inline qdf_size_t qdf_nbuf_get_truesize(qdf_nbuf_t nbuf)
 static inline qdf_size_t qdf_nbuf_get_allocsize(qdf_nbuf_t nbuf)
 {
 	return __qdf_nbuf_get_allocsize(nbuf);
+}
+
+/**
+ * qdf_is_pp_nbuf: Check if SKB memory is from page pool
+ *
+ * @nbuf: nbuf reference
+ *
+ * Return: True/False
+ */
+static inline bool qdf_is_pp_nbuf(qdf_nbuf_t nbuf)
+{
+	return __qdf_is_pp_nbuf(nbuf);
 }
 
 #ifdef NBUF_FRAG_MEMORY_DEBUG

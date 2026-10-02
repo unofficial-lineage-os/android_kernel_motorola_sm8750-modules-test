@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2016-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+ * Copyright (c) 2021-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -787,7 +787,6 @@ struct dp_tx_ext_desc_pool_s {
  * @comp:
  * @tcl_cmd_vaddr: VADDR of the TCL descriptor, valid for soft-umac arch
  * @tcl_cmd_paddr: PADDR of the TCL descriptor, valid for soft-umac arch
- * @orig_nbuf: Reference of the network layer nbuf
  */
 struct dp_tx_desc_s {
 	struct dp_tx_desc_s *next;
@@ -818,9 +817,6 @@ struct dp_tx_desc_s {
 #ifdef WLAN_SOFTUMAC_SUPPORT
 	void *tcl_cmd_vaddr;
 	qdf_dma_addr_t tcl_cmd_paddr;
-#endif
-#ifdef DP_FEATURE_TX_PAGE_POOL
-	qdf_nbuf_t orig_nbuf;
 #endif
 };
 #else /* QCA_DP_OPTIMIZED_TX_DESC */
@@ -855,9 +851,6 @@ struct dp_tx_desc_s {
 #ifdef WLAN_SOFTUMAC_SUPPORT
 	void *tcl_cmd_vaddr;
 	qdf_dma_addr_t tcl_cmd_paddr;
-#endif
-#ifdef DP_FEATURE_TX_PAGE_POOL
-	qdf_nbuf_t orig_nbuf;
 #endif
 };
 #endif /* QCA_DP_OPTIMIZED_TX_DESC */
@@ -1455,10 +1448,6 @@ struct dp_soc_stats {
 		 * Index 4 indicates WBM2_SW_PPE_REL_RING_ID */
 		uint32_t fw_rel_status_cnt[MAX_TCL_DATA_RINGS][HTT_TX_FW2WBM_TX_STATUS_MAX];
 #endif
-		/* Number of pkts transmitted through sw tso path */
-		uint32_t sw_tso_pkts;
-		/* Number of TSO packets failed to transmit in sw tso path */
-		uint32_t sw_tso_fail;
 	} tx;
 
 	/* SOC level RX stats */
@@ -1789,26 +1778,6 @@ struct rx_refill_buff_pool {
 	qdf_nbuf_t *buf_elem;
 };
 
-#if defined(DP_FEATURE_TX_PAGE_POOL) || defined(DP_FEATURE_RX_BUFFER_RECYCLE)
-/**
- * struct dp_page_pool_t - TX/RX Page pool prealloc info
- * @type: TX/RX page pool type
- * @pp: Reference to the page pool
- * @pool_size: Actual pool size the page pool is requested for during allocation
- * @pp_size: Size of the page pool
- * @page_size: Size of the page used in page pool
- * @in_use: Where page pool is in use or not
- */
-struct dp_page_pool_t {
-	enum qdf_dp_tx_pp_type type;
-	qdf_page_pool_t pp;
-	uint32_t pool_size;
-	size_t pp_size;
-	size_t page_size;
-	bool in_use;
-};
-#endif
-
 #ifdef DP_FEATURE_RX_BUFFER_RECYCLE
 #define DP_PAGE_POOL_MAX 4
 
@@ -1817,13 +1786,11 @@ struct dp_rx_pp_params {
 	qdf_page_pool_t pp;
 	size_t pool_size;
 	size_t pp_size;
-	uint8_t prealloc;
 };
 
 struct dp_rx_page_pool {
 	struct dp_rx_pp_params main_pool[DP_PAGE_POOL_MAX];
 	struct dp_rx_pp_params aux_pool;
-	struct dp_soc *soc;
 	uint8_t active_pp_idx;
 	qdf_spinlock_t pp_lock;
 	size_t curr_pool_size;
@@ -1831,41 +1798,6 @@ struct dp_rx_page_pool {
 	qdf_atomic_t update_in_progress;
 	qdf_timer_t pool_inactivity_timer;
 	qdf_list_t inactive_list;
-	bool page_pool_init;
-	uint64_t alloc_success;
-	uint64_t alloc_fail;
-};
-#endif
-
-#ifdef DP_FEATURE_TX_PAGE_POOL
-/**
- * struct dp_tx_pp_params - TX Page pool parameters
- * @pp: Reference to the page pool
- * @pool_size: Actual pool size the page pool is requested for during allocation
- * @pp_size: Size of the page pool
- * @alloc_success: Page pool buffer allocation success stat
- * @alloc_fail: Page pool buffer allocation failure stat
- */
-struct dp_tx_pp_params {
-	qdf_page_pool_t pp;
-	size_t pool_size;
-	size_t pp_size;
-	uint64_t alloc_success;
-	uint64_t alloc_fail;
-};
-
-/**
- * struct dp_tx_page_pool - TX Page pool info
- * @tx_pool: TX page pool parameters
- * @pp_lock: Lock protecting page pool parameters
- * @page_pool_init: Page pool initialize or not
- * @ref_cnt: Reference count for the page pool, delete pool if ref_cnt is zero
- */
-struct dp_tx_page_pool {
-	struct dp_tx_pp_params tx_pool;
-	qdf_spinlock_t pp_lock;
-	bool page_pool_init;
-	qdf_atomic_t ref_cnt;
 };
 #endif
 
@@ -2552,7 +2484,6 @@ enum dp_context_type {
  * @tx_hw_enqueue: enqueue TX data to HW
  * @tx_comp_get_params_from_hal_desc: get software tx descriptor and release
  * 				      source from HAL desc for wbm release ring
- * @tx_comp_ring_desc_mark_invalid: Mark tx comp ring descriptors as invalid
  * @dp_tx_mlo_mcast_send: Tx send handler for MLO multicast enhance
  * @dp_tx_process_htt_completion:
  * @dp_rx_process:
@@ -2694,8 +2625,7 @@ struct dp_arch_ops {
 	QDF_STATUS (*tx_comp_get_params_from_hal_desc)(
 				struct dp_soc *soc, void *tx_comp_hal_desc,
 				struct dp_tx_desc_s **desc);
-	void (*tx_comp_ring_desc_mark_invalid)(struct dp_soc *soc,
-					       struct dp_srng *srng);
+
 	qdf_nbuf_t (*dp_tx_mlo_mcast_send)(struct dp_soc *soc,
 					   struct dp_vdev *vdev,
 					   qdf_nbuf_t nbuf,
@@ -2971,7 +2901,6 @@ struct dp_arch_ops {
  * @fw_support_ml_monitor: FW support ML monitor mode
  * @dp_ipa_opt_dp_ctrl_refill: opt_dp_ctrl refill support
  * @vdev_tx_nss_support: FW supports vdev Tx NSS report.
- * @dyn_resource_mgr_support: Dynamic RX buffer allocation support
  */
 struct dp_soc_features {
 	uint8_t pn_in_reo_dest:1,
@@ -2985,7 +2914,6 @@ struct dp_soc_features {
 	bool dp_ipa_opt_dp_ctrl_refill;
 #endif
 	bool vdev_tx_nss_support;
-	bool dyn_resource_mgr_support;
 };
 
 enum sysfs_printing_mode {
@@ -3414,8 +3342,6 @@ struct dp_soc {
 	qdf_list_t peer_unmap_track_list;
 	/* timer for peer unmap tracking */
 	qdf_timer_t peer_unmap_track_timer;
-	/* global source cookie for peer initialization */
-	qdf_atomic_t peer_unmap_track_cookie;
 #endif
 	/* rx peer metadata field shift and mask configuration */
 	uint8_t htt_peer_id_s;
@@ -3772,11 +3698,6 @@ struct dp_soc {
 #ifdef DP_FEATURE_RX_BUFFER_RECYCLE
 	struct dp_rx_page_pool rx_pp[MAX_RXDESC_POOLS];
 #endif
-
-#ifdef DP_FEATURE_TX_PAGE_POOL
-	struct dp_tx_page_pool *tx_pp[MAX_VDEV_CNT];
-	qdf_spinlock_t tx_pp_lock;
-#endif
 };
 
 /*
@@ -3813,17 +3734,14 @@ QDF_COMPILE_TIME_ASSERT(num_cpu_check,
 #define LINK_DESC_PAGE_ID_MASK  0x007FE0
 #define LINK_DESC_ID_SHIFT      5
 #define LINK_DESC_ID_START_21_BITS_COOKIE 0x8000
-#define LINK_DESC_ID_START_20_BITS_COOKIE 0x4000
 #elif PAGE_SIZE == 16384
 #define LINK_DESC_PAGE_ID_MASK 0x007F80
 #define LINK_DESC_ID_SHIFT      7
-#define LINK_DESC_ID_START_21_BITS_COOKIE 0x2000
-#define LINK_DESC_ID_START_20_BITS_COOKIE 0x1000
+#define LINK_DESC_ID_START_21_BITS_COOKIE 0x8000
 #elif PAGE_SIZE == 65536
 #define LINK_DESC_PAGE_ID_MASK  0x007E00
 #define LINK_DESC_ID_SHIFT      9
 #define LINK_DESC_ID_START_21_BITS_COOKIE 0x800
-#define LINK_DESC_ID_START_20_BITS_COOKIE 0x400
 #else
 #error "Unsupported kernel PAGE_SIZE"
 #endif
@@ -3839,8 +3757,8 @@ QDF_COMPILE_TIME_ASSERT(num_cpu_check,
 #define LINK_DESC_COOKIE_PAGE_ID(_cookie) \
 	((_cookie) & LINK_DESC_PAGE_ID_MASK)
 #define LINK_DESC_ID_START_21_BITS_COOKIE 0x8000
-#define LINK_DESC_ID_START_20_BITS_COOKIE 0x4000
 #endif
+#define LINK_DESC_ID_START_20_BITS_COOKIE 0x4000
 
 /* same as ieee80211_nac_param */
 enum dp_nac_param_cmd {
@@ -5674,9 +5592,6 @@ struct dp_peer {
 
 	uint8_t peer_state;
 	qdf_spinlock_t peer_state_lock;
-#ifdef DP_PEER_UNMAP_TRACK
-	uint32_t unmap_track_cookie;
-#endif
 #ifdef WLAN_SUPPORT_MSCS
 	struct dp_peer_mscs_parameter mscs_ipv4_parameter, mscs_ipv6_parameter;
 	bool mscs_active;

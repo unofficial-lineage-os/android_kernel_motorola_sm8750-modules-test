@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2016-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+ * Copyright (c) 2021-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -2360,9 +2360,6 @@ QDF_STATUS dp_srng_alloc(struct dp_soc *soc, struct dp_srng *srng,
 	if (!srng->base_vaddr_aligned)
 		return QDF_STATUS_E_NOMEM;
 
-	/* memset the srng ring to zero */
-	qdf_mem_zero(srng->base_vaddr_unaligned, srng->alloc_size);
-
 	return QDF_STATUS_SUCCESS;
 }
 
@@ -3719,69 +3716,6 @@ dp_rx_fst_detach_wrapper(struct dp_soc *soc, struct dp_pdev *pdev)
 }
 #endif
 
-#if defined(DP_FEATURE_TX_PAGE_POOL) || defined(DP_FEATURE_RX_BUFFER_RECYCLE)
-#ifdef DP_FEATURE_TX_PAGE_POOL
-static inline void dp_soc_tx_page_pool_attach(struct dp_soc *soc)
-{
-	qdf_spinlock_create(&soc->tx_pp_lock);
-}
-
-static inline void dp_soc_tx_page_pool_detach(struct dp_soc *soc)
-{
-	qdf_spinlock_destroy(&soc->tx_pp_lock);
-}
-#else
-static inline void dp_soc_tx_page_pool_attach(struct dp_soc *soc)
-{
-}
-
-static inline void dp_soc_tx_page_pool_detach(struct dp_soc *soc)
-{
-}
-#endif /* DP_FEATURE_TX_PAGE_POOL */
-
-static void dp_soc_page_pool_mem_attach(struct dp_soc *soc)
-{
-	/* If page pool allocation has failed during dp prealloc
-	 * init, we will try to allocate them by calling the
-	 * dp_page_pool_init() again during dp_soc_attach().
-	 */
-	if (!soc->cdp_soc.ol_ops->dp_page_pool_init)
-		return;
-
-	return soc->cdp_soc.ol_ops->dp_page_pool_init(soc->ctrl_psoc);
-}
-
-static inline void dp_soc_page_pool_mem_detach(struct dp_soc *soc)
-{
-	/* This is just a place holder API. Page pool
-	 * memory allocated during dp_soc_attach() is saved
-	 * in dp prealloc region and is freed only during
-	 * driver unload.
-	 */
-}
-
-static void dp_soc_page_pool_attach(struct dp_soc *soc)
-{
-	dp_soc_page_pool_mem_attach(soc);
-	dp_soc_tx_page_pool_attach(soc);
-}
-
-static void dp_soc_page_pool_detach(struct dp_soc *soc)
-{
-	dp_soc_tx_page_pool_detach(soc);
-	dp_soc_page_pool_mem_detach(soc);
-}
-#else
-static inline void dp_soc_page_pool_attach(struct dp_soc *soc)
-{
-}
-
-static inline void dp_soc_page_pool_detach(struct dp_soc *soc)
-{
-}
-#endif
-
 /**
  * dp_pdev_attach_wifi3() - attach txrx pdev
  * @txrx_soc: Datapath SOC handle
@@ -4286,7 +4220,6 @@ static void dp_soc_detach(struct cdp_soc_t *txrx_soc)
 	dp_soc_srng_free(soc);
 	dp_hw_link_desc_ring_free(soc);
 	dp_hw_link_desc_pool_banks_free(soc, WLAN_INVALID_PDEV_ID);
-	dp_soc_page_pool_detach(soc);
 	wlan_cfg_soc_detach(soc->wlan_cfg_ctx);
 	dp_soc_tx_hw_desc_history_detach(soc);
 	dp_soc_tx_history_detach(soc);
@@ -6014,7 +5947,6 @@ dp_peer_create_wifi3(struct cdp_soc_t *soc_hdl, uint8_t vdev_id,
 		}
 		dp_peer_add_ast(soc, peer, peer_mac_addr, ast_type, 0);
 
-		dp_peer_unmap_track_cookie_init(soc, peer);
 		peer->valid = 1;
 		peer->is_tdls_peer = false;
 		dp_local_peer_id_alloc(pdev, peer);
@@ -6173,7 +6105,6 @@ dp_peer_create_wifi3(struct cdp_soc_t *soc_hdl, uint8_t vdev_id,
 		goto fail;
 	}
 
-	dp_peer_unmap_track_cookie_init(soc, peer);
 	peer->valid = 1;
 	dp_local_peer_id_alloc(pdev, peer);
 	DP_STATS_INIT(peer);
@@ -6882,7 +6813,6 @@ void dp_peer_unmap_track_update(struct dp_soc *soc,
 
 	elem->peer = peer;
 	elem->peer_id = peer->peer_id;
-	elem->unmap_track_cookie = peer->unmap_track_cookie;
 	elem->track_start_time = qdf_get_log_timestamp();
 
 	qdf_spin_lock_bh(&soc->peer_unmap_track_lock);
@@ -6935,15 +6865,11 @@ static void dp_peer_unmap_track_timer(void *arg)
 	peer = dp_peer_get_ref_by_id(soc, elem->peer_id,
 				     DP_MOD_ID_MISC);
 	/*
-	 * If peer NULL, peer unmapped and same peer id not reused.
-	 * If peer is not NULL,
-	 * peer != elem->peer, peer unmapped and new different dp_peer
-	 * reuse same peer_id.
-	 * peer == elem->peer, but cookie ID mismatch, peer unmaped and
-	 * same address peer re-created and mapped with same peer ID.
+	 * peer NULL, peer id unmapped but not reused,
+	 * peer not NULL and != elem->peer, new dp_peer has
+	 * used same peer ID.
 	 */
-	if (!peer || (peer != elem->peer) ||
-	    (peer->unmap_track_cookie != elem->unmap_track_cookie))  {
+	if (!peer || (peer != elem->peer)) {
 		qdf_mem_free(elem);
 		if (peer)
 			dp_peer_unref_delete(peer, DP_MOD_ID_MISC);
@@ -8147,8 +8073,6 @@ void dp_get_peer_per_pkt_stats(struct dp_peer *peer,
 				break;
 			per_pkt_stats = &txrx_peer->stats[i].per_pkt_stats;
 			DP_UPDATE_PER_PKT_STATS(peer_stats, per_pkt_stats);
-			dp_info("MLO get stats from peer %d link_id %d",
-				txrx_peer->peer_id, i);
 		}
 		dp_release_link_peers_ref(&link_peers_info,
 					  DP_MOD_ID_GENERIC_STATS);
@@ -8156,8 +8080,6 @@ void dp_get_peer_per_pkt_stats(struct dp_peer *peer,
 		index = dp_get_peer_link_id(peer);
 		per_pkt_stats = &txrx_peer->stats[index].per_pkt_stats;
 		DP_UPDATE_PER_PKT_STATS(peer_stats, per_pkt_stats);
-		dp_info("get stats from peer %d link_id %d",
-			txrx_peer->peer_id, index);
 		qdf_mem_copy(&peer_stats->mac_addr,
 			     &peer->mac_addr.raw[0],
 			     QDF_MAC_ADDR_SIZE);
@@ -9861,12 +9783,6 @@ dp_set_psoc_param(struct cdp_soc_t *cdp_soc,
 		dp_info("FW supports Tx Vdev NSS report: %d",
 			soc->features.vdev_tx_nss_support);
 		break;
-	case CDP_DYN_RESOURCE_MGR_SUPPORT:
-		soc->features.dyn_resource_mgr_support =
-			val.cdp_dyn_resource_mgr_support;
-		dp_info("Dynamic resource manager support: %u",
-			soc->features.dyn_resource_mgr_support);
-		break;
 	default:
 		break;
 	}
@@ -11090,84 +11006,6 @@ static QDF_STATUS dp_soc_notify_asserted_soc(struct cdp_soc_t *psoc)
 	return QDF_STATUS_E_INVAL;
 }
 
-#ifdef DP_FEATURE_TX_PAGE_POOL
-static void dp_print_tx_page_pool_stats(struct dp_soc *soc)
-{
-	struct dp_tx_page_pool *tx_pp;
-	bool print_once = false;
-	int vdev_id;
-
-	if (!wlan_cfg_get_dp_tx_page_pool_enabled(soc->wlan_cfg_ctx))
-		return;
-
-	qdf_spin_lock_bh(&soc->tx_pp_lock);
-	for (vdev_id = 0; vdev_id < MAX_VDEV_CNT; vdev_id++) {
-		if (!soc->tx_pp[vdev_id])
-			continue;
-
-		tx_pp = soc->tx_pp[vdev_id];
-		if (!tx_pp || !tx_pp->page_pool_init)
-			continue;
-
-		if (!print_once) {
-			print_once = true;
-			dp_info("Tx page pool stats:");
-		}
-
-		dp_info("vdev id %d: success %llu failure %llu", vdev_id,
-			tx_pp->tx_pool.alloc_success,
-			tx_pp->tx_pool.alloc_fail);
-	}
-	qdf_spin_unlock_bh(&soc->tx_pp_lock);
-}
-#else
-static inline void dp_print_tx_page_pool_stats(struct dp_soc *soc)
-{
-}
-#endif
-
-#ifdef DP_FEATURE_RX_BUFFER_RECYCLE
-static void dp_print_rx_page_pool_stats(struct dp_soc *soc)
-{
-	struct dp_rx_page_pool *rx_pp;
-	bool print_once = false;
-	int i;
-
-	if (!wlan_cfg_get_dp_rx_buffer_recycle(soc->wlan_cfg_ctx))
-		return;
-
-	for (i = 0; i < MAX_RXDESC_POOLS; i++) {
-		rx_pp =  &soc->rx_pp[i];
-		if (!rx_pp->page_pool_init)
-			continue;
-
-		if (!print_once) {
-			print_once = true;
-			dp_info("Rx page pool stats:");
-		}
-
-		dp_info("Pool id %d: success: %llu failure %llu", i,
-			rx_pp->alloc_success, rx_pp->alloc_fail);
-	}
-}
-#else
-static inline void dp_print_rx_page_pool_stats(struct dp_soc *soc)
-{
-}
-#endif
-
-#if defined(DP_FEATURE_TX_PAGE_POOL) || defined(DP_FEATURE_RX_BUFFER_RECYCLE)
-static void dp_print_page_pool_stats(struct dp_soc *soc)
-{
-	dp_print_tx_page_pool_stats(soc);
-	dp_print_rx_page_pool_stats(soc);
-}
-#else
-static inline void dp_print_page_pool_stats(struct dp_soc *soc)
-{
-}
-#endif
-
 /**
  * dp_txrx_dump_stats() -  Dump statistics
  * @psoc: CDP soc handle
@@ -11199,7 +11037,6 @@ static QDF_STATUS dp_txrx_dump_stats(struct cdp_soc_t *psoc, uint16_t value,
 		if (soc->cdp_soc.ol_ops->dp_print_fisa_stats)
 			soc->cdp_soc.ol_ops->dp_print_fisa_stats(
 						CDP_FISA_STATS_ID_ERR_STATS);
-		dp_print_page_pool_stats(soc);
 		break;
 
 	case CDP_RX_RING_STATS:
@@ -11237,10 +11074,6 @@ static QDF_STATUS dp_txrx_dump_stats(struct cdp_soc_t *psoc, uint16_t value,
 
 	case CDP_DP_TX_HW_LATENCY_STATS:
 		dp_pdev_print_tx_delay_stats(soc);
-		break;
-
-	case CDP_DP_LAPB_STATS:
-		wlan_dp_lapb_display_stats(soc);
 		break;
 
 	default:
@@ -11484,10 +11317,6 @@ QDF_STATUS dp_txrx_clear_dump_stats(struct cdp_soc_t *soc_hdl, uint8_t pdev_id,
 
 	case CDP_DP_TX_HW_LATENCY_STATS:
 		dp_pdev_clear_tx_delay_stats(soc);
-		break;
-
-	case CDP_DP_LAPB_STATS:
-		wlan_dp_lapb_clear_stats(soc);
 		break;
 
 	default:
@@ -14344,9 +14173,6 @@ static struct cdp_ipa_ops dp_ops_ipa = {
 #ifdef IPA_OPT_WIFI_DP_CTRL
 	.ipa_opt_dp_ctrl_debug_enable = dp_ipa_opt_dp_ctrl_debug_enable,
 #endif
-#ifdef IPA_WDI3_PENDING_BUFF_REPORT
-	.ipa_is_completion_pending = dp_ipa_is_completion_pending,
-#endif
 #endif
 #ifdef IPA_WDS_EASYMESH_FEATURE
 	.ipa_ast_create = dp_ipa_ast_create,
@@ -14735,8 +14561,6 @@ dp_soc_attach(struct cdp_ctrl_objmgr_psoc *ctrl_psoc,
 		dp_err("wlan_cfg_ctx failed");
 		goto fail2;
 	}
-
-	dp_soc_page_pool_attach(soc);
 
 	qdf_ssr_driver_dump_register_region("wlan_cfg_ctx", soc->wlan_cfg_ctx,
 					    sizeof(*soc->wlan_cfg_ctx));

@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2013-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2025 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -2597,8 +2597,7 @@ static QDF_STATUS wlan_ipa_setup_iface(struct wlan_ipa_priv *ipa_ctx,
 		ipa_err("Max interface reached %d", WLAN_IPA_MAX_IFACE);
 		status = QDF_STATUS_E_NOMEM;
 		iface_context = NULL;
-		ipa_err("Interface setup failed for session id - %d, device mode - %d",
-			session_id, device_mode);
+		QDF_ASSERT(0);
 		goto end;
 	}
 
@@ -5015,35 +5014,6 @@ void wlan_ipa_opt_dp_deinit(struct wlan_ipa_priv *ipa_ctx)
 	}
 }
 
-#define IPA_TX_COMP_CHECK_CNT	4
-#define IPA_TX_COMP_WAIT_TIME	250
-/**
- * wlan_ipa_opt_dp_wait_for_completion() - Check and wait if IPA tx pending
- * @ipa_ctx: IPA context
- *
- * Return: None
- */
-static inline void
-wlan_ipa_opt_dp_wait_for_completion(struct wlan_ipa_priv *ipa_ctx)
-{
-	uint8_t retry_count = 0;
-	ol_txrx_soc_handle soc = (ol_txrx_soc_handle)ipa_ctx->dp_soc;
-
-	while (retry_count < IPA_TX_COMP_CHECK_CNT) {
-		if (cdp_ipa_is_completion_pending(soc)) {
-			retry_count++;
-			qdf_sleep(IPA_TX_COMP_WAIT_TIME);
-			continue;
-		}
-		break;
-	}
-
-	if (retry_count == IPA_TX_COMP_CHECK_CNT) {
-		dp_err("Tx completion pending");
-		ipa_ctx->ipa_tx_pending = true;
-	}
-}
-
 #else
 static inline QDF_STATUS wlan_ipa_reg_flt_cbs(struct wlan_ipa_priv *ipa_ctx)
 {
@@ -5063,11 +5033,6 @@ void wlan_ipa_destroy_opt_wifi_flt_cb_event(struct wlan_ipa_priv *ipa_ctx)
 
 static inline
 void wlan_ipa_opt_dp_deinit(struct wlan_ipa_priv *ipa_ctx)
-{
-}
-
-static inline void
-wlan_ipa_opt_dp_wait_for_completion(struct wlan_ipa_priv *ipa_ctx)
 {
 }
 #endif
@@ -5171,7 +5136,6 @@ QDF_STATUS wlan_ipa_setup(struct wlan_ipa_priv *ipa_ctx,
 		qdf_atomic_set(&ipa_ctx->pipes_disabled, 1);
 		qdf_atomic_set(&ipa_ctx->autonomy_disabled, 1);
 		ipa_ctx->wdi_enabled = false;
-		ipa_ctx->ipa_tx_pending = false;
 
 		status = wlan_ipa_wdi_init(ipa_ctx);
 
@@ -5634,8 +5598,6 @@ static void wlan_ipa_uc_op_cb(struct op_msg_type *op_msg,
 	} else if (msg->op_code == WLAN_IPA_FILTER_REL_NOTIFY) {
 		ipa_info("opt_dp: IPA notify filter rel_response: %d",
 			 msg->rsvd);
-		if (msg->rsvd)
-			wlan_ipa_opt_dp_wait_for_completion(ipa_ctx);
 		qdf_mutex_acquire(&ipa_ctx->ipa_lock);
 		qdf_ipa_wdi_opt_dpath_notify_flt_rlsd_per_inst(ipa_ctx->hdl,
 							       msg->rsvd);
@@ -7365,7 +7327,7 @@ void wlan_ipa_wdi_opt_dpath_ctrl_notify_flt_delete(struct filter_response
 			    dp_flt_params->flt_addr_params[j].dst_port) {
 				if (result ==
 					HTT_TX_LCE_SUPER_RULE_RELEASE_FAIL) {
-					ipa_debug("opt_dp_ctrl: filter with handle found but del failed on fw side");
+					ipa_debug("opt_dp_ctrl: filter with handle %d found but del failed on fw side");
 					code =
 					WLAN_IPA_WDI_OPT_DPATH_RESP_ERR_FAILURE;
 					break;

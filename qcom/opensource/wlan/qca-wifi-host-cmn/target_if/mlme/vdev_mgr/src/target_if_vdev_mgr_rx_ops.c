@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2019-2020 The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2025 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -40,7 +40,6 @@
 #ifdef DP_UMAC_HW_RESET_SUPPORT
 #include <cdp_txrx_ctrl.h>
 #endif
-#include <target_if_psoc_timer_tx_ops.h>
 
 static inline
 void target_if_vdev_mgr_handle_recovery(struct wlan_objmgr_psoc *psoc,
@@ -392,8 +391,6 @@ static int target_if_vdev_mgr_start_response_handler(ol_scn_t scn,
 	struct vdev_start_response vdev_start_resp = {0};
 	uint8_t vdev_id;
 	struct vdev_response_timer *vdev_rsp;
-	struct wlan_objmgr_vdev *vdev;
-	enum QDF_OPMODE mode = QDF_MAX_NO_OF_MODE;
 
 	if (!scn || !data) {
 		mlme_err("Invalid input");
@@ -431,35 +428,13 @@ static int target_if_vdev_mgr_start_response_handler(ol_scn_t scn,
 		return -EINVAL;
 	}
 
-	vdev = wlan_objmgr_get_vdev_by_id_from_psoc(psoc, vdev_id,
-						    WLAN_VDEV_TARGET_IF_ID);
-	if (!vdev) {
-		mlme_err("Null Vdev");
-		return -EINVAL;
-	}
-
-	mode = wlan_vdev_mlme_get_opmode(vdev);
-	wlan_objmgr_vdev_release_ref(vdev, WLAN_VDEV_TARGET_IF_ID);
-
-	if (vdev_start_resp.resp_type == WMI_HOST_VDEV_RESTART_RESP_EVENT) {
+	if (vdev_start_resp.resp_type == WMI_HOST_VDEV_RESTART_RESP_EVENT)
 		status = target_if_vdev_mgr_rsp_timer_stop(
 							psoc, vdev_rsp,
 							RESTART_RESPONSE_BIT);
-	} else {
-		/*
-		 * START_WAKELOCK is acquired before sending the start command
-		 * and released after sending up command to fw.
-		 * But if vdev start fails, then release it here.
-		 */
-		if (mode == QDF_MONITOR_MODE || mode == QDF_SAP_MODE ||
-		    mode == QDF_P2P_GO_MODE) {
-			target_if_wake_lock_timeout_release(psoc,
-							    START_WAKELOCK);
-			target_if_release_vdev_cmd_rt_lock(psoc, vdev_id);
-		}
+	else
 		status = target_if_vdev_mgr_rsp_timer_stop(psoc, vdev_rsp,
 							   START_RESPONSE_BIT);
-	}
 
 	if (QDF_IS_STATUS_ERROR(status)) {
 		mlme_err("PSOC_%d VDEV_%d: VDE MGR RSP Timer stop failed",
@@ -583,7 +558,6 @@ static int target_if_vdev_mgr_delete_response_handler(ol_scn_t scn,
 		return -EINVAL;
 	}
 
-	target_if_release_vdev_cmd_rt_lock(psoc, vdev_del_resp.vdev_id);
 	status = target_if_vdev_mgr_rsp_timer_stop(
 						psoc, vdev_rsp,
 						DELETE_RESPONSE_BIT);

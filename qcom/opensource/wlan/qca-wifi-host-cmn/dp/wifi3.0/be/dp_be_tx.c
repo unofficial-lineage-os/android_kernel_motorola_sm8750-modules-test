@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2016-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+ * Copyright (c) 2021-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -94,50 +94,40 @@ extern uint8_t sec_type_map[MAX_CDP_SEC_TYPE];
  */
 #define DP_TX_COMP_DESC_BUFF_VA_32BITS_HI_INVALIDATE 0x12121212
 
-void dp_srng_tx_comp_ring_desc_mark_invalid(struct dp_soc *soc,
-					    struct dp_srng *srng)
-{
-	uint8_t *desc = srng->base_vaddr_aligned;
-	uint32_t num_entries = srng->num_entries;
-	uint32_t entry_size;
-	int i;
-
-	if (!num_entries) {
-		dp_err("srng num_entries is 0");
-		return;
-	}
-	entry_size = srng->alloc_size / num_entries;
-
-	for (i = 0; i < num_entries; i++) {
-		hal_tx_comp_set_desc_va_63_32(desc,
-				DP_TX_COMP_DESC_BUFF_VA_32BITS_HI_INVALIDATE);
-		desc += entry_size;
-	}
-}
-
 /**
- * dp_tx_comp_desc_invalidate() - sanity check for ring desc and
+ * dp_tx_comp_desc_check_and_invalidate() - sanity check for ring desc and
  *					    invalidate it after each reaping
  * @tx_comp_hal_desc: ring desc virtual address
  * @r_tx_desc: pointer to current dp TX Desc pointer
+ * @tx_desc_va: the original 64 bits Desc VA got from ring Desc
  * @hw_cc_done: HW cookie conversion done or not
  *
- * If HW CC is not done, compare PA between ring Desc
- * and current TX desc.
+ * If HW CC is done, check the buffer_virt_addr_63_32 value to know if
+ * ring Desc is stale or not. if HW CC is not done, then compare PA between
+ * ring Desc and current TX desc.
  *
  * Return: QDF_STATUS_SUCCESS for success,
+ *	   QDF_STATUS_E_PENDING for stale entry,
  *	   QDF_STATUS_E_INVAL for invalid entry.
  */
 static inline
-QDF_STATUS dp_tx_comp_desc_invalidate(void *tx_comp_hal_desc,
-				      struct dp_tx_desc_s **r_tx_desc,
-				      bool hw_cc_done)
+QDF_STATUS dp_tx_comp_desc_check_and_invalidate(void *tx_comp_hal_desc,
+						struct dp_tx_desc_s **r_tx_desc,
+						uint64_t tx_desc_va,
+						bool hw_cc_done)
 {
 	qdf_dma_addr_t desc_dma_addr;
 	QDF_STATUS status = QDF_STATUS_SUCCESS;
 
 	if (qdf_likely(hw_cc_done)) {
-		hal_tx_comp_set_desc_va_63_32(
+		/* Check upper 32 bits */
+		if (DP_TX_COMP_DESC_BUFF_VA_32BITS_HI_INVALIDATE ==
+		    (tx_desc_va >> 32)) {
+			*r_tx_desc = NULL;
+			status = QDF_STATUS_E_PENDING;
+		} else
+			/* Invalidate the ring desc for 32 ~ 63 bits of VA */
+			hal_tx_comp_set_desc_va_63_32(
 				tx_comp_hal_desc,
 				DP_TX_COMP_DESC_BUFF_VA_32BITS_HI_INVALIDATE);
 	} else {
@@ -152,45 +142,12 @@ QDF_STATUS dp_tx_comp_desc_invalidate(void *tx_comp_hal_desc,
 
 	return status;
 }
-
-/**
- * dp_tx_comp_desc_validate() - sanity check for tx desc.
- * @r_tx_desc: pointer to current dp TX Desc pointer
- * @tx_desc_va: the original 64 bits Desc VA got from ring Desc
- *
- * Check 32-63 bits of tx_desc_va to know if ring descriptor is stale or not.
- * If the ring desc previously has been invalidated, the high order 32 bits
- * of tx_desc_va will be a magic number.
- *
- * Return: QDF_STATUS_SUCCESS for success,
- *	       QDF_STATUS_E_PENDING for stale entry,
- */
-static inline
-QDF_STATUS dp_tx_comp_desc_validate(struct dp_tx_desc_s **r_tx_desc,
-				    uint64_t tx_desc_va)
-{
-	QDF_STATUS status = QDF_STATUS_SUCCESS;
-
-	if (DP_TX_COMP_DESC_BUFF_VA_32BITS_HI_INVALIDATE ==
-	    (tx_desc_va >> 32)) {
-		*r_tx_desc = NULL;
-		status = QDF_STATUS_E_PENDING;
-	}
-
-	return status;
-}
 #else
 static inline
-QDF_STATUS dp_tx_comp_desc_invalidate(void *tx_comp_hal_desc,
-				      struct dp_tx_desc_s **r_tx_desc,
-				      bool hw_cc_done)
-{
-	return QDF_STATUS_SUCCESS;
-}
-
-static inline
-QDF_STATUS dp_tx_comp_desc_validate(struct dp_tx_desc_s **r_tx_desc,
-				    uint64_t tx_desc_va)
+QDF_STATUS dp_tx_comp_desc_check_and_invalidate(void *tx_comp_hal_desc,
+						struct dp_tx_desc_s **r_tx_desc,
+						uint64_t tx_desc_va,
+						bool hw_cc_done)
 {
 	return QDF_STATUS_SUCCESS;
 }
@@ -209,15 +166,11 @@ dp_tx_comp_get_params_from_hal_desc_be(struct dp_soc *soc,
 	bool hw_cc_done =
 		hal_tx_comp_get_cookie_convert_done(tx_comp_hal_desc);
 
-	/* Check the upper 32bits irrespective of cookie conversion was done */
-	tx_desc_va = hal_tx_comp_get_desc_va(tx_comp_hal_desc);
-	status = dp_tx_comp_desc_validate(r_tx_desc, tx_desc_va);
-
-	if (QDF_IS_STATUS_ERROR(status))
-		return status;
-
 	if (qdf_likely(hw_cc_done)) {
+		/* HW cookie conversion done */
+		tx_desc_va = hal_tx_comp_get_desc_va(tx_comp_hal_desc);
 		*r_tx_desc = (struct dp_tx_desc_s *)(uintptr_t)tx_desc_va;
+
 	} else {
 		/* SW do cookie conversion to VA */
 		tx_desc_id = hal_tx_comp_get_desc_id(tx_comp_hal_desc);
@@ -225,9 +178,9 @@ dp_tx_comp_get_params_from_hal_desc_be(struct dp_soc *soc,
 		(struct dp_tx_desc_s *)dp_cc_desc_find(soc, tx_desc_id);
 	}
 
-	status = dp_tx_comp_desc_invalidate(tx_comp_hal_desc,
-					    r_tx_desc,
-					    hw_cc_done);
+	status = dp_tx_comp_desc_check_and_invalidate(tx_comp_hal_desc,
+						      r_tx_desc, tx_desc_va,
+						      hw_cc_done);
 
 	if (*r_tx_desc)
 		(*r_tx_desc)->peer_id =
@@ -248,14 +201,9 @@ dp_tx_comp_get_params_from_hal_desc_be(struct dp_soc *soc,
 	tx_desc_va = hal_tx_comp_get_desc_va(tx_comp_hal_desc);
 	*r_tx_desc = (struct dp_tx_desc_s *)(uintptr_t)tx_desc_va;
 
-	status = dp_tx_comp_desc_validate(r_tx_desc, tx_desc_va);
-
-	if (QDF_IS_STATUS_ERROR(status))
-		return status;
-
-	status = dp_tx_comp_desc_invalidate(tx_comp_hal_desc,
-					    r_tx_desc,
-					    true);
+	status = dp_tx_comp_desc_check_and_invalidate(tx_comp_hal_desc,
+						      r_tx_desc, tx_desc_va,
+						      true);
 	if (*r_tx_desc)
 		(*r_tx_desc)->peer_id =
 				dp_tx_comp_get_peer_id_be(soc,
@@ -279,9 +227,8 @@ dp_tx_comp_get_params_from_hal_desc_be(struct dp_soc *soc,
 	*r_tx_desc =
 	(struct dp_tx_desc_s *)dp_cc_desc_find(soc, tx_desc_id);
 
-	status = dp_tx_comp_desc_invalidate(tx_comp_hal_desc,
-					    r_tx_desc,
-					    false);
+	status = dp_tx_comp_desc_check_and_invalidate(tx_comp_hal_desc,
+						      r_tx_desc, 0, false);
 
 	if (*r_tx_desc)
 		(*r_tx_desc)->peer_id =
@@ -1778,8 +1725,8 @@ dp_tx_hw_enqueue_be(struct dp_soc *soc, struct dp_vdev *vdev,
 	dp_tx_update_proto_stats(vdev, tx_desc->nbuf, ring_id,
 				 TX_ENQUEUE_HW);
 
-	coalesce = dp_tx_attempt_coalescing_wrapper(soc, vdev, tx_desc, tid,
-						    msdu_info, ring_id);
+	coalesce = dp_tx_attempt_coalescing(soc, vdev, tx_desc, tid,
+					    msdu_info, ring_id);
 
 	if (qdf_unlikely(dp_tx_pkt_tracepoints_enabled())) {
 		hp = hal_srng_src_get_hp(hal_ring_hdl);
@@ -2526,13 +2473,11 @@ more_data:
 						      tx_desc_pool,
 						      tx_desc, buffer_src,
 						      comp_index, 1);
-
-			if (qdf_unlikely(!tx_desc->pdev))
-				dp_tx_dump_tx_desc(tx_desc);
-
 			dp_tx_process_htt_completion_be(soc, tx_desc,
 							htt_tx_status,
 							ring_id);
+			if (qdf_unlikely(!tx_desc->pdev))
+				dp_tx_dump_tx_desc(tx_desc);
 		} else {
 			tx_desc->tx_status =
 				hal_tx_comp_get_tx_status(tx_comp_hal_desc);
@@ -2588,15 +2533,6 @@ more_data:
 						 tx_desc->flags, tx_desc->id);
 				qdf_assert_always(0);
 			}
-
-			if (qdf_unlikely(tx_desc->flags &
-			    DP_TX_DESC_FLAG_REAPED)) {
-				dp_tx_comp_alert("Txdesc duplicate entry, flags = %x,id = %d",
-						 tx_desc->flags, tx_desc->id);
-				qdf_assert_always(0);
-			}
-
-			tx_desc->flags |= DP_TX_DESC_FLAG_REAPED;
 
 			/* Collect hw completion contents */
 			hal_tx_comp_desc_sync_wrapper(tx_comp_hal_desc,

@@ -533,7 +533,7 @@ QDF_STATUS dp_vdev_set_monitor_mode(struct cdp_soc_t *dp_soc,
 	QDF_STATUS status = QDF_STATUS_SUCCESS;
 	struct dp_mon_pdev *mon_pdev;
 	struct cdp_mon_ops *cdp_ops;
-	int8_t mac_id = MAX_NUM_LMAC_HW - 1;
+	uint8_t mac_id = 0;
 	struct dp_mon_mac *mon_mac;
 
 	if (!vdev)
@@ -546,16 +546,7 @@ QDF_STATUS dp_vdev_set_monitor_mode(struct cdp_soc_t *dp_soc,
 	}
 
 	mon_pdev = pdev->monitor_pdev;
-
-	/* Clear chan_num of all mon_mac and leave mac_id to 0
-	 * to make sure mon_mac is always the first one
-	 */
-	while (mac_id >= 0) {
-		mon_mac = dp_get_mon_mac(pdev, mac_id);
-		mon_mac->mon_chan_num = INVALID_MON_CHAN_NUM;
-		mac_id--;
-	}
-
+	mon_mac = dp_get_mon_mac(pdev, mac_id);
 	mon_mac->mvdev = vdev;
 	mon_mac->vdev_id = vdev->vdev_id;
 
@@ -608,12 +599,8 @@ QDF_STATUS dp_vdev_set_monitor_mode(struct cdp_soc_t *dp_soc,
 	if (cdp_ops  && cdp_ops->soc_config_full_mon_mode)
 		cdp_ops->soc_config_full_mon_mode((struct cdp_pdev *)pdev,
 						  DP_FULL_MON_ENABLE);
-
-	if (!dp_mon_mode_local_pkt_capture(soc)) {
-		dp_mon_filter_setup_mon_mode(pdev);
-		status = dp_mon_filter_update(pdev);
-	}
-
+	dp_mon_filter_setup_mon_mode(pdev);
+	status = dp_mon_filter_update(pdev);
 	if (status != QDF_STATUS_SUCCESS) {
 		dp_cdp_err("%pK: Failed to reset monitor filters", soc);
 		dp_mon_filter_reset_mon_mode(pdev);

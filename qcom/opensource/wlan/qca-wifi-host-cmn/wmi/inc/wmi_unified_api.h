@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2013-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+ * Copyright (c) 2021-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -5400,39 +5400,5 @@ QDF_STATUS
 wmi_unified_send_sta_vdev_report_ap_oper_bw_cmd(
 					wmi_unified_t wmi_handle,
 					struct wmi_sta_vdev_report_ap_oper_bw_params *param);
-/**
- * is_both_psd_eirp_support_present_for_sp() - FW can handle
- * PSD and EIRP together or not
- *
- * @wmi_handle: wmi handle
- * @param: reg tpc power
- *
- * Return: true if FW can handle PSD and EIRP together or not
- */
-bool is_both_psd_eirp_support_present_for_sp(wmi_unified_t wmi_handle,
-                                             struct reg_tpc_power_info *param);
 
-#ifdef FEATURE_WLAN_ZERO_POWER_SCAN
-/**
- * wmi_unified_cached_scan_report_cmd_send() - WMI interface API to send
- * command to request cached scan report.
- * @wmi_handle: Handle to WMI.
- *
- * Return: QDF_STATUS.
- */
-QDF_STATUS wmi_unified_cached_scan_report_cmd_send(wmi_unified_t wmi_handle);
-
-/**
- * wmi_extract_cached_scan_report_ev_params() - WMI interface to convert
- * FW data to host data for cached scan report.
- * @wmi_handle: Handle to WMI
- * @ev_data: Pointer to event data
- * @data_len: Length of bytes pointed by @ev_data
- *
- * Return: Pointer to extracted host buffer on success or %NULL.
- */
-void *wmi_extract_cached_scan_report_ev_params(wmi_unified_t wmi_handle,
-					       void *ev_data,
-					       uint32_t data_len);
-#endif
 #endif /* _WMI_UNIFIED_API_H_ */

@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2016-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2025 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -946,8 +946,7 @@ dp_rx_get_num_buffers_required(struct rx_desc_pool *rx_desc_pool,
 {
 	uint64_t required_count = qdf_atomic_read(&rx_desc_pool->required_count);
 
-	dp_info("required:%llu, type:%u", required_count,
-		rx_desc_pool->desc_type);
+	dp_info("required:%u, type:%u", required_count, rx_desc_pool->desc_type);
 	if ((rx_desc_pool->desc_type != QDF_DP_RX_DESC_BUF_TYPE) ||
 	    !required_count ||
 	    required_count == rxdma_entries)
@@ -2119,20 +2118,6 @@ void __dp_rx_add_to_free_desc_list_reuse(union dp_rx_desc_list_elem_t **head,
 }
 #endif
 
-/**
- * dp_rx_desc_paddr_sanity_check() - paddr sanity for ring desc vs rx_desc
- * @rx_desc: rx descriptor
- * @ring_paddr: paddr obatined from the ring
- *
- * Return: QDF_STATUS
- */
-static inline
-bool dp_rx_desc_paddr_sanity_check(struct dp_rx_desc *rx_desc,
-				   uint64_t ring_paddr)
-{
-	return (ring_paddr == qdf_nbuf_get_frag_paddr(rx_desc->nbuf, 0));
-}
-
 #ifdef RX_DESC_DEBUG_CHECK
 /**
  * dp_rx_desc_check_magic() - check the magic value in dp_rx_desc
@@ -2198,6 +2183,20 @@ void dp_rx_desc_frag_prep(struct dp_rx_desc *rx_desc,
 {
 }
 #endif /* DP_RX_MON_MEM_FRAG */
+
+/**
+ * dp_rx_desc_paddr_sanity_check() - paddr sanity for ring desc vs rx_desc
+ * @rx_desc: rx descriptor
+ * @ring_paddr: paddr obatined from the ring
+ *
+ * Return: QDF_STATUS
+ */
+static inline
+bool dp_rx_desc_paddr_sanity_check(struct dp_rx_desc *rx_desc,
+				   uint64_t ring_paddr)
+{
+	return (ring_paddr == qdf_nbuf_get_frag_paddr(rx_desc->nbuf, 0));
+}
 #else
 
 static inline bool dp_rx_desc_check_magic(struct dp_rx_desc *rx_desc)
@@ -2232,6 +2231,13 @@ void dp_rx_desc_frag_prep(struct dp_rx_desc *rx_desc,
 {
 }
 #endif /* DP_RX_MON_MEM_FRAG */
+
+static inline
+bool dp_rx_desc_paddr_sanity_check(struct dp_rx_desc *rx_desc,
+				   uint64_t ring_paddr)
+{
+	return true;
+}
 #endif /* RX_DESC_DEBUG_CHECK */
 
 /**
@@ -2522,36 +2528,39 @@ void dp_rx_cksum_offload(struct dp_pdev *pdev,
 	//TODO - Move this to ring desc api
 	//HAL_RX_MSDU_DESC_IP_CHKSUM_FAIL_GET
 	//HAL_RX_MSDU_DESC_TCP_UDP_CHKSUM_FAIL_GET
-	uint32_t ip_csum_err, tcp_udp_csum_er, ip_frag;
+	uint32_t ip_csum_err, tcp_udp_csum_er;
 
 	hal_rx_tlv_csum_err_get(pdev->soc->hal_soc, rx_tlv_hdr, &ip_csum_err,
-				&tcp_udp_csum_er, &ip_frag);
+				&tcp_udp_csum_er);
 
-	if (qdf_unlikely(ip_frag))
-		goto bypass_tcp_udp;
-
-	if (qdf_unlikely(ip_csum_err)) {
-		DP_STATS_INC(pdev, err.ip_csum_err, 1);
-		goto bypass_tcp_udp;
-	}
-
-	if (qdf_nbuf_is_ipv4_udp_pkt(nbuf) ||
-	    qdf_nbuf_is_ipv4_tcp_pkt(nbuf)) {
-		if (qdf_likely(!tcp_udp_csum_er)) {
+	if (qdf_nbuf_is_ipv4_pkt(nbuf)) {
+		if (qdf_likely(!ip_csum_err)) {
 			cksum.l4_result = QDF_NBUF_RX_CKSUM_TCP_UDP_UNNECESSARY;
-			cksum.csum_level = 1;
+			if (qdf_nbuf_is_ipv4_udp_pkt(nbuf) ||
+			    qdf_nbuf_is_ipv4_tcp_pkt(nbuf)) {
+				if (qdf_likely(!tcp_udp_csum_er)) {
+					cksum.csum_level = 1;
+				} else {
+					cksum.l4_result =
+						QDF_NBUF_RX_CKSUM_NONE;
+					DP_STATS_INC(pdev,
+						     err.tcp_udp_csum_err, 1);
+				}
+			}
 		} else {
-		    DP_STATS_INC(pdev, err.tcp_udp_csum_err, 1);
+			DP_STATS_INC(pdev, err.ip_csum_err, 1);
 		}
 	} else if (qdf_nbuf_is_ipv6_udp_pkt(nbuf) ||
 		   qdf_nbuf_is_ipv6_tcp_pkt(nbuf)) {
-		if (qdf_likely(!tcp_udp_csum_er))
+		if (qdf_likely(!ip_csum_err && !tcp_udp_csum_er))
 			cksum.l4_result = QDF_NBUF_RX_CKSUM_TCP_UDP_UNNECESSARY;
-		else
+		else if (ip_csum_err) {
+			DP_STATS_INC(pdev, err.ip_csum_err, 1);
+		} else {
 			DP_STATS_INC(pdev, err.tcp_udp_csum_err, 1);
+		}
 	}
 
-bypass_tcp_udp:
 	qdf_nbuf_set_rx_cksum(nbuf, &cksum);
 }
 #else
@@ -3716,6 +3725,7 @@ QDF_STATUS dp_rx_desc_sanity(struct dp_soc *soc, hal_soc_handle_t hal_soc,
 }
 #endif
 
+#ifdef RX_DESC_DEBUG_CHECK
 /**
  * dp_rx_desc_nbuf_sanity_check - Add sanity check to catch REO rx_desc paddr
  *				  corruption
@@ -3728,6 +3738,15 @@ QDF_STATUS dp_rx_desc_sanity(struct dp_soc *soc, hal_soc_handle_t hal_soc,
 QDF_STATUS dp_rx_desc_nbuf_sanity_check(struct dp_soc *soc,
 					hal_ring_desc_t ring_desc,
 					struct dp_rx_desc *rx_desc);
+#else
+static inline
+QDF_STATUS dp_rx_desc_nbuf_sanity_check(struct dp_soc *soc,
+					hal_ring_desc_t ring_desc,
+					struct dp_rx_desc *rx_desc)
+{
+	return QDF_STATUS_SUCCESS;
+}
+#endif
 #endif /* QCA_HOST_MODE_WIFI_DISABLED */
 
 /**

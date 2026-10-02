@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2016-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2025 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -237,7 +237,6 @@ struct wlan_objmgr_peer *wlan_objmgr_peer_obj_create(
 		"Peer("QDF_MAC_ADDR_FMT") PSOC attach failure",
 				QDF_MAC_ADDR_REF(macaddr));
 		qdf_spinlock_destroy(&peer->peer_lock);
-		wlan_objmgr_peer_trace_del_ref_list(peer);
 		wlan_objmgr_peer_trace_deinit_lock(peer);
 		qdf_mem_free(peer);
 		return NULL;
@@ -251,7 +250,6 @@ struct wlan_objmgr_peer *wlan_objmgr_peer_obj_create(
 		/* if attach fails, detach from psoc table before free */
 		wlan_objmgr_psoc_peer_detach(psoc, peer);
 		qdf_spinlock_destroy(&peer->peer_lock);
-		wlan_objmgr_peer_trace_del_ref_list(peer);
 		wlan_objmgr_peer_trace_deinit_lock(peer);
 		qdf_mem_free(peer);
 		return NULL;
@@ -1563,41 +1561,3 @@ QDF_STATUS wlan_peer_update_macaddr(struct wlan_objmgr_peer *peer,
 	return QDF_STATUS_SUCCESS;
 }
 #endif
-
-bool wlan_peer_is_key_installed(struct wlan_objmgr_psoc *psoc,
-				uint8_t *peer_mac_addr)
-{
-	struct wlan_objmgr_peer *peer;
-	bool is_key_installed;
-
-	peer = wlan_objmgr_get_peer_by_mac(psoc, peer_mac_addr,
-					   WLAN_OBJMGR_ID);
-	if (!peer)
-		return false;
-
-	is_key_installed =  wlan_peer_mlme_get_key_install_flag(peer);
-
-	obj_mgr_debug(QDF_MAC_ADDR_FMT " key installed %d",
-		      QDF_MAC_ADDR_REF(peer_mac_addr), is_key_installed);
-
-	wlan_objmgr_peer_release_ref(peer, WLAN_OBJMGR_ID);
-	return is_key_installed;
-}
-
-void wlan_peer_set_key_install_flag(struct wlan_objmgr_psoc *psoc,
-				    uint8_t *peer_mac_addr,
-				    bool is_key_installed)
-{
-	struct wlan_objmgr_peer *peer;
-
-	peer = wlan_objmgr_get_peer_by_mac(psoc, peer_mac_addr,
-					   WLAN_OBJMGR_ID);
-	if (!peer)
-		return;
-
-	obj_mgr_debug(QDF_MAC_ADDR_FMT " key installed %d",
-		      QDF_MAC_ADDR_REF(peer_mac_addr), is_key_installed);
-
-	wlan_peer_mlme_set_key_install_flag(peer, is_key_installed);
-	wlan_objmgr_peer_release_ref(peer, WLAN_OBJMGR_ID);
-}

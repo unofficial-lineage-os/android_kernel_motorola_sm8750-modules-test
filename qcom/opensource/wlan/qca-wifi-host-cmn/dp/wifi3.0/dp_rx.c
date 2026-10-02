@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2016-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+ * Copyright (c) 2021-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -129,6 +129,7 @@ uint32_t dp_rx_srng_get_num_pending(hal_soc_handle_t hal_soc,
 	return num_pending;
 }
 
+#ifdef RX_DESC_DEBUG_CHECK
 QDF_STATUS dp_rx_desc_nbuf_sanity_check(struct dp_soc *soc,
 					hal_ring_desc_t ring_desc,
 					struct dp_rx_desc *rx_desc)
@@ -143,7 +144,6 @@ QDF_STATUS dp_rx_desc_nbuf_sanity_check(struct dp_soc *soc,
 	return QDF_STATUS_E_FAILURE;
 }
 
-#ifdef RX_DESC_DEBUG_CHECK
 /**
  * dp_rx_desc_nbuf_len_sanity_check - Add sanity check to catch Rx buffer
  *				      out of bound access from H.W
@@ -353,10 +353,8 @@ dp_pdev_nbuf_alloc_and_map_replenish(struct dp_soc *dp_soc,
 					     rx_desc_pool,
 					     num_entries_avail);
 	if (!((nbuf_frag_info_t->virt_addr).nbuf)) {
+		dp_err("nbuf alloc failed");
 		DP_STATS_INC(dp_pdev, replenish.nbuf_alloc_fail, 1);
-		dp_err_rl("nbuf alloc failed %d",
-			  dp_pdev->stats.replenish.nbuf_alloc_fail);
-
 		return QDF_STATUS_E_NOMEM;
 	}
 
@@ -365,10 +363,8 @@ dp_pdev_nbuf_alloc_and_map_replenish(struct dp_soc *dp_soc,
 	if (qdf_unlikely(QDF_IS_STATUS_ERROR(ret))) {
 		dp_rx_buffer_pool_nbuf_free(dp_soc,
 			(nbuf_frag_info_t->virt_addr).nbuf, mac_id);
+		dp_err("nbuf map failed");
 		DP_STATS_INC(dp_pdev, replenish.map_err, 1);
-		dp_err_rl("nbuf map failed %d",
-			  dp_pdev->stats.replenish.map_err);
-
 		return QDF_STATUS_E_FAULT;
 	}
 
@@ -1313,7 +1309,6 @@ bool dp_rx_intrabss_ucast_fwd(struct dp_soc *soc, struct dp_txrx_peer *ta_peer,
 			      struct cdp_tid_rx_stats *tid_stats,
 			      uint8_t link_id)
 {
-	qdf_dma_addr_t paddr = QDF_NBUF_CB_PADDR(nbuf);
 	uint16_t len;
 
 	len = QDF_NBUF_CB_RX_PKT_LEN(nbuf);
@@ -1341,10 +1336,6 @@ bool dp_rx_intrabss_ucast_fwd(struct dp_soc *soc, struct dp_txrx_peer *ta_peer,
 	}
 
 	qdf_mem_set(nbuf->cb, sizeof(nbuf->cb), 0x0);
-
-	if (qdf_is_pp_nbuf(nbuf))
-		QDF_NBUF_CB_PADDR(nbuf) = paddr;
-
 	dp_classify_critical_pkts(soc, ta_peer->vdev, nbuf);
 
 	/* Don't send packets if tx is paused */
@@ -2967,19 +2958,8 @@ void dp_rx_deliver_to_stack_no_peer(struct dp_soc *soc, qdf_nbuf_t nbuf)
 		 */
 		peer = dp_peer_get_tgt_peer_by_id(soc, peer_id,
 						  DP_MOD_ID_RX);
-		if (!peer) {
-			/* For EAPOL frames that are received before HTT MLO map
-			 * event, peer search with peer_id  will fail and the
-			 * packet get dropped. Get MLD peer directly from VDEV.
-			 */
-			if (!qdf_nbuf_is_ipv4_eapol_pkt(nbuf))
-				goto deliver_fail;
-
-			peer = dp_peer_get_tgt_peer_by_vdev(soc, vdev,
-							    DP_MOD_ID_RX);
-			if (!peer)
-				goto deliver_fail;
-		}
+		if (!peer)
+			goto deliver_fail;
 
 		/* only check for MLO connection */
 		if (IS_MLO_DP_MLD_PEER(peer) && peer->txrx_peer &&
@@ -3842,7 +3822,7 @@ dp_rx_set_req_buff_descs(struct cdp_soc_t *cdp_soc,
 
 	dp_rx_page_pool_resize(soc, pdev_id, req_rx_buff_descs);
 
-	dp_info("Req RX buffer descriptors set to %llu", req_rx_buff_descs);
+	dp_info("Req RX buffer descriptors set to %u", req_rx_buff_descs);
 	return QDF_STATUS_SUCCESS;
 }
 

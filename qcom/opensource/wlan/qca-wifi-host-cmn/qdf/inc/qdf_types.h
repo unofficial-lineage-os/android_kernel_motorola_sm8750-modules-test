@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2014-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+ * Copyright (c) 2021-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -915,24 +915,8 @@ enum QDF_GLOBAL_MODE {
  *	Exception Case-1: When STA is operating on DFS channel.
  *	Exception Case-2: When STA is operating on LTE-CoEx channel.
  *	Exception Case-3: When STA is operating on AP disabled channel.
- * @QDF_MCC_TO_SCC_WITH_SAME_LOWER_BAND_MCC_WITH_HIGHER_BAND: Select SCC/MCC
- *							      based on below
- *							      cases:
- *      1. When other interface is in higher band then only MCC is allowed.
- *	   For Example: If STA is connected on 5 GHz and SAP comes on 2.4 GHz band,
- *			the SAP can't upgrade the connection to 5 GHz band.
- *			Consequently, the SAP will come up on 2.4 GHz MCC.
- *      2. When other interface is in lower band then SCC is allowed.
- *	   For Example: If STA is connected on 2.4 GHz and SAP comes on 5 GHz band,
- *			the SAP can downgrade the connection to 2.4 GHz.
- *			Consequently, the SAP will come up on 2.4 GHz SCC.
- *      3. When other interface is in DFS/Indoor freq and SAP is not allowed
- *	   then MCC is allowed.
- *      4. When other interface is in 6 Ghz and SAP is not 6 Ghz capable then
- *	   MCC is allowed.
- * In case of MCC, host will initiate roam invoke to FW and try to move to SCC
- * candidate if possible.
- * This enum is applicable for Non-DBS targets only.
+ * @QDF_MCC_TO_SCC_WITH_PREFERRED_BAND: Force SCC only in user preferred band.
+ * Allow MCC if STA is operating or comes up on other than user preferred band.
  *
  * @QDF_MCC_TO_SCC_SWITCH_MAX: max switch
  */
@@ -941,7 +925,7 @@ typedef enum {
 	QDF_MCC_TO_SCC_SWITCH_FORCE_WITHOUT_DISCONNECTION = 3,
 	QDF_MCC_TO_SCC_SWITCH_WITH_FAVORITE_CHANNEL,
 	QDF_MCC_TO_SCC_SWITCH_FORCE_PREFERRED_WITHOUT_DISCONNECTION,
-	QDF_MCC_TO_SCC_WITH_SAME_LOWER_BAND_MCC_WITH_HIGHER_BAND,
+	QDF_MCC_TO_SCC_WITH_PREFERRED_BAND,
 	QDF_MCC_TO_SCC_SWITCH_MAX
 } tQDF_MCC_TO_SCC_SWITCH_MODE;
 #endif
@@ -1947,18 +1931,5 @@ enum qdf_dp_desc_type {
 	QDF_DP_RX_DIRECT_LINK_CE_BUF_TYPE,
 #endif
 	QDF_DP_DESC_TYPE_MAX
-};
-
-/**
- * enum qdf_dp_tx_pp_type - page pool type
- * @QDF_DP_PAGE_POOL_RX: rx page pool
- * @QDF_DP_PAGE_POOL_TX: tx page pool
- * @QDF_DP_PAGE_POOL_MAX: max page pool type
- */
-enum qdf_dp_tx_pp_type {
-	QDF_DP_PAGE_POOL_RX,
-	QDF_DP_PAGE_POOL_TX,
-
-	QDF_DP_PAGE_POOL_MAX
 };
 #endif /* __QDF_TYPES_H */

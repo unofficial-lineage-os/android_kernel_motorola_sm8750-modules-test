@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2020-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+ * Copyright (c) 2024 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -54,7 +54,7 @@
  * dcs_debug - Configure dcs debug trace level for debug purpose
  * @Min: 0
  * @Max: 2
- * @Default: 1
+ * @Default: 0
  *
  * This ini is used to configure dcs debug trace level for debug purpose
  *
@@ -67,7 +67,7 @@
  */
 #define CFG_DCS_DEBUG CFG_INI_UINT(\
 		"dcs_debug",\
-		0, 2, 1,\
+		0, 2, 0,\
 		CFG_VALUE_OR_DEFAULT,\
 		"dcs debug trace level")
 
@@ -92,28 +92,6 @@
 		0, 0xFFFFFFFF, 30,\
 		CFG_VALUE_OR_DEFAULT,\
 		"dcs co-channel interference threshold level")
-
-/*
- * <ini>
- * dcs_trnsprt_rjt_threshold_cu - Configure Transport reject interference threshold
- * @Min: 0
- * @Max: 0xFFFFFFFF
- * @Default: 30
- *
- * This ini is used to configure Transport reject interference threshold
- *
- *
- * Related: None
- *
- * Usage: External
- *
- * </ini>
- */
-#define CFG_DCS_TRANSPORT_SWITCH_RJT_TH_CU CFG_INI_UINT(\
-		"dcs_trnsprt_rjt_threshold_cu",\
-		0, 0xFFFFFFFF, 30,\
-		CFG_VALUE_OR_DEFAULT,\
-		"dcs ll sap Transport reject interference threshold level")
 
 /*
  * <ini>
@@ -342,7 +320,7 @@
  * gEnableDcsPerMode - Enable/Disable DCS per mode
  * @Min: 0x0
  * @Max: 0x0f0f0f0f
- * @Default: 0x0200
+ * @Default: 0x0202
  *
  * This ini is used to enable or disable DCS and DCS type per mode.
  *
@@ -369,7 +347,7 @@
 		"gEnableDcsPerMode", \
 		0x0, \
 		0x0f0f0f0f, \
-		0x0200, \
+		0x0202, \
 		CFG_VALUE_OR_DEFAULT, \
 		"Enable DCS per mode")
 
@@ -416,7 +394,6 @@
 	CFG(CFG_DCS_ENABLE) \
 	CFG(CFG_DCS_DEBUG) \
 	CFG(CFG_DCS_COCH_INTFR_THRESHOLD) \
-	CFG(CFG_DCS_TRANSPORT_SWITCH_RJT_TH_CU) \
 	CFG(CFG_DCS_TX_ERR_THRESHOLD) \
 	CFG(CFG_DCS_PHY_ERR_PENALTY) \
 	CFG(CFG_DCS_PHY_ERR_THRESHOLD) \

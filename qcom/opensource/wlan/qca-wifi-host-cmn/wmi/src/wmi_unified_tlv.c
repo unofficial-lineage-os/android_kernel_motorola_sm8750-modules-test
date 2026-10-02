@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2016-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+ * Copyright (c) 2021-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -72,7 +72,6 @@
 #include "wlan_mlme_public_struct.h"
 #endif
 #include "cdp_txrx_cmn.h"
-#include <wlan_cp_stats_utils_api.h>
 
 /*
  * If FW supports WMI_SERVICE_SCAN_CONFIG_PER_CHANNEL,
@@ -3543,7 +3542,8 @@ send_ap_suspend_cmd_tlv(wmi_unified_t wmi_handle,
 		(wmi_set_ap_suspend_resume_fixed_param));
 	cmd->vdev_id = params->vdev_id;
 	cmd->is_ap_suspend = params->suspend;
-	WMI_CHAR_ARRAY_TO_MAC_ADDR(params->mac_addr, &cmd->mld_mac_address);
+	qdf_mem_copy(&cmd->mld_mac_address, &params->mac_addr,
+		     sizeof(wmi_mac_addr));
 
 	wmi_mtrace(WMI_SET_AP_SUSPEND_RESUME_CMDID, cmd->vdev_id, 0);
 	wmi_debug("vdev_id:%d is_ap_suspend:%d, mld_addr: " QDF_MAC_ADDR_FMT,
@@ -7722,24 +7722,18 @@ static QDF_STATUS send_unified_ll_stats_get_sta_cmd_tlv(
 					 WMI_REQUEST_VDEV_EXTD_STAT |
 					 WMI_REQUEST_PEER_EXTD2_STAT |
 					 WMI_REQUEST_RSSI_PER_CHAIN_STAT);
-
-	if (wlan_cp_stats_is_bcn_rssi_history_report_cfg_enable(
-					wmi_handle->soc->wmi_psoc))
-		unified_cmd->get_sta_stats_id |= WMI_REQUEST_VDEV_RECV_BCN_STAT;
-
 	unified_cmd->pdev_id = wmi_handle->ops->convert_pdev_id_host_to_target(
 							wmi_handle,
 							WMI_HOST_PDEV_ID_SOC);
+
 	unified_cmd->vdev_id = get_req->vdev_id;
 	unified_cmd->request_id = get_req->req_id;
 	WMI_CHAR_ARRAY_TO_MAC_ADDR(get_req->peer_macaddr.bytes,
 				   &unified_cmd->peer_macaddr);
 
-	wmi_debug("UNIFIED_LINK_STATS_GET_STA - Get Request Params Request ID: %u Stats Type: %0x Stats Id: %u Vdev ID: %d Peer MAC Addr: "
+	wmi_debug("UNIFIED_LINK_STATS_GET_STA - Get Request Params Request ID: %u Stats Type: %0x Vdev ID: %d Peer MAC Addr: "
 		  QDF_MAC_ADDR_FMT,
-		  get_req->req_id, get_req->param_id_mask,
-		  unified_cmd->get_sta_stats_id,
-		  get_req->vdev_id,
+		  get_req->req_id, get_req->param_id_mask, get_req->vdev_id,
 		  QDF_MAC_ADDR_REF(get_req->peer_macaddr.bytes));
 
 	wmi_update_tlv_headers_for_mlo_stats(get_req, buf_ptr);
@@ -9777,33 +9771,21 @@ extract_spectral_fft_size_caps_tlv(
 }
 #endif /* WLAN_CONV_SPECTRAL_ENABLE */
 
-/**
- * wmi_convert_host_client_id_to_fw_client_id() - convert
- * enum wmi_thermal_monitor_id to enum WMI_THERMAL_MITIGATION_CLIENTS
- * @tt_conf : Fixed param buffer
- * @param : pointer to hold thermal mitigation param
- *
- * Return: none
- */
-static inline void wmi_convert_host_client_id_to_fw_client_id(
-		wmi_therm_throt_config_request_fixed_param *tt_conf,
-		struct thermal_mitigation_params *param)
+#ifdef FEATURE_WPSS_THERMAL_MITIGATION
+static inline void
+wmi_fill_client_id_priority(wmi_therm_throt_config_request_fixed_param *tt_conf,
+			    struct thermal_mitigation_params *param)
 {
-	switch (param->client_id) {
-	case WMI_HOST_THERMAL_MONITOR_APPS:
-		tt_conf->client_id = WMI_THERMAL_CLIENT_APPS;
-		return;
-	case WMI_HOST_THERMAL_MONITOR_WPSS:
-		tt_conf->client_id = WMI_THERMAL_CLIENT_WPSS;
-		return;
-	case WMI_HOST_THERMAL_MONITOR_DDR_BWM:
-		tt_conf->client_id = WMI_THERMAL_CLIENT_DDR_BWM;
-		return;
-	default:
-		wmi_debug("Invalid client_id");
-		return;
-	}
+	tt_conf->client_id = param->client_id;
+	tt_conf->priority = param->priority;
 }
+#else
+static inline void
+wmi_fill_client_id_priority(wmi_therm_throt_config_request_fixed_param *tt_conf,
+			    struct thermal_mitigation_params *param)
+{
+}
+#endif
 
 /**
  * send_thermal_mitigation_param_cmd_tlv() - configure thermal mitigation params
@@ -9846,15 +9828,9 @@ static QDF_STATUS send_thermal_mitigation_param_cmd_tlv(
 	tt_conf->dc = param->dc;
 	tt_conf->dc_per_event = param->dc_per_event;
 	tt_conf->therm_throt_levels = param->num_thermal_conf;
-	if (wmi_service_enabled(wmi_handle,
-				wmi_service_thermal_multi_client_support)) {
-		wmi_convert_host_client_id_to_fw_client_id(tt_conf, param);
-		tt_conf->priority = param->priority;
-	}
-	wmi_debug("therm_throt_levels: %u duty cycle: %d, dc_per_event: %d, priority: %d, client_id: %d",
-		  tt_conf->therm_throt_levels, tt_conf->dc,
-		  tt_conf->dc_per_event, param->priority, tt_conf->client_id);
-
+	wmi_debug("Total thermal throttle levels: %u",
+		  tt_conf->therm_throt_levels);
+	wmi_fill_client_id_priority(tt_conf, param);
 	buf_ptr = (uint8_t *) ++tt_conf;
 	/* init TLV params */
 	WMITLV_SET_HDR(buf_ptr, WMITLV_TAG_ARRAY_STRUC,
@@ -9872,7 +9848,7 @@ static QDF_STATUS send_thermal_mitigation_param_cmd_tlv(
 		lvl_conf->prio = param->levelconf[i].priority;
 		lvl_conf->pout_reduction_25db =
 				param->levelconf[i].pout_reduction_db;
-		wmi_debug("Thermal level TLV config:Level %u, Low threshold %u, High threshold %u, Duty cycle off %u, Priority %u, Pout reduction %u",
+		wmi_debug("Thermal level config:\nLevel %u Low threshold %u High threshold %u\n Duty cycle off %u Priority %u Pout reduction %u",
 			  i, lvl_conf->temp_lwm, lvl_conf->temp_hwm,
 			  lvl_conf->dc_off_percent, lvl_conf->prio,
 			  lvl_conf->pout_reduction_25db);
@@ -10577,15 +10553,10 @@ void wmi_copy_resource_config(wmi_unified_t wmi_handle,
 	else
 		WMI_RSRC_CFG_FLAGS2_OPTIMIZE_POWER_SET(resource_cfg->flags2, 1);
 
-	resource_cfg->dp_haps_config = tgt_res_cfg->haps_feature_flags;
-
 	wmi_copy_latency_flowq_support(resource_cfg, tgt_res_cfg);
 	wmi_copy_full_bw_nol_cfg(resource_cfg, tgt_res_cfg);
 	wmi_copy_mgmt_rx_srng_support(resource_cfg, tgt_res_cfg);
 
-	if (tgt_res_cfg->enable_bcn_rssi_history_report)
-		WMI_RSRC_CFG_FLAGS2_RECV_BCN_STATS_ENABLED_SET(
-						resource_cfg->flags2, 1);
 }
 
 #ifdef FEATURE_SET
@@ -15544,7 +15515,8 @@ extract_hw_bdf_status(wmi_service_ready_ext2_event_fixed_param *ev)
 	hw_bdf_s = ev->hw_bd_status;
 	switch (hw_bdf_s) {
 	case WMI_BDF_VERSION_CHECK_DISABLED:
-		wmi_info("FW and BDF ver check skipped");
+		wmi_info("BDF VER is %d, FW and BDF ver check skipped",
+			 hw_bdf_s);
 		break;
 	case WMI_BDF_VERSION_CHECK_GOOD:
 		wmi_info("BDF VER is %d, FW and BDF ver check good",
@@ -17430,13 +17402,7 @@ static void extract_additional_cli_rules_meta_info(
 				WMI_REG_RULE_TYPE_indoor_enabled_sub_cli) {
 		client_type = REG_SUBORDINATE_CLIENT;
 		reg_info->addn_reg_rule_order[addn_meta_idx] = REG_CLI_SUB_C2C;
-	} else {
-		/* Unknown rule type, skip processing to avoid invalid index */
-		return;
 	}
-
-	if (client_type >= REG_MAX_CLIENT_TYPE)
-		return;
 
 	reg_info->num_6g_reg_rules_client[REG_INDOOR_ENABLED_AP][client_type] =
 		meta_data->num_6ghz_reg_rules;
@@ -20863,29 +20829,21 @@ extract_roam_trigger_stats_tlv(wmi_unified_t wmi_handle, void *evt_buf,
 		return QDF_STATUS_E_FAILURE;
 	}
 
-	if (!param_buf->roam_result || idx >= param_buf->num_roam_result) {
+	if (!param_buf->roam_result || idx >= param_buf->num_roam_result)
 		wmi_err("roam_result or idx error.%u", idx);
-		return QDF_STATUS_E_FAILURE;
-	}
 
-	if (!param_buf->roam_scan_info ||
-	    idx >= param_buf->num_roam_scan_info) {
+	if (!param_buf->roam_scan_info || idx >= param_buf->num_roam_scan_info)
 		wmi_err("roam_scan_info or idx error.%u", idx);
-		return QDF_STATUS_E_FAILURE;
-	}
 
 	trig->present = true;
 
-	if (param_buf->roam_scan_info &&
-	    idx < param_buf->num_roam_scan_info)
+	if (param_buf->roam_scan_info)
 		scan_info = &param_buf->roam_scan_info[idx];
 
-	if (param_buf->roam_trigger_reason_cmm &&
-	    idx < param_buf->num_roam_trigger_reason_cmm)
+	if (param_buf->roam_trigger_reason_cmm)
 		cmn_data = &param_buf->roam_trigger_reason_cmm[idx];
 
-	if (param_buf->roam_trigger_reason &&
-	    idx < param_buf->num_roam_trigger_reason)
+	if (param_buf->roam_trigger_reason)
 		src_data = &param_buf->roam_trigger_reason[idx];
 
 	if (cmn_data) {
@@ -21204,14 +21162,9 @@ extract_roam_scan_ap_stats_tlv(wmi_unified_t wmi_handle, void *evt_buf,
 		return QDF_STATUS_E_FAILURE;
 	}
 
-	/*
-	 * Check to validate that the requested number of APs do not exceed the
-	 * remaining APs in param_buf after ap_idx to prevent out of bounds
-	 * access.
-	 */
-	if ((ap_idx + num_cand) > param_buf->num_roam_ap_info) {
-		wmi_err("Invalid roam scan AP tlv ap_idx:%d, num_cand:%d, total_ap:%d",
-			ap_idx, num_cand, param_buf->num_roam_ap_info);
+	if (ap_idx >= param_buf->num_roam_ap_info) {
+		wmi_err("Invalid roam scan AP tlv ap_idx:%d total_ap:%d",
+			ap_idx, param_buf->num_roam_ap_info);
 		return QDF_STATUS_E_FAILURE;
 	}
 
@@ -21835,12 +21788,6 @@ static QDF_STATUS extract_pdev_csa_switch_count_status_tlv(
 							wmi_handle,
 							csa_status->pdev_id);
 	param->current_switch_count = csa_status->current_switch_count;
-
-	if (param_buf->num_vdev_ids != csa_status->num_vdevs) {
-		wmi_err("Invalid number of vdevs: received = %d, expected = %d",
-			csa_status->num_vdevs, param_buf->num_vdev_ids);
-		return QDF_STATUS_E_INVAL;
-	}
 	param->num_vdevs = csa_status->num_vdevs;
 	param->vdev_ids = param_buf->vdev_ids;
 
@@ -22002,6 +21949,7 @@ send_both_eirp_psd_for_set_tpc_tlv(wmi_unified_t wmi_handle,
 	return ret;
 }
 
+static inline
 bool is_both_psd_eirp_support_present_for_sp(wmi_unified_t wmi_handle,
 					     struct reg_tpc_power_info *param)
 {
@@ -22924,121 +22872,6 @@ extract_mgmt_srng_reap_event_tlv(wmi_unified_t wmi_handle, uint8_t *evt_buf,
 }
 #endif
 
-#ifdef FEATURE_WLAN_ZERO_POWER_SCAN
-static QDF_STATUS send_get_cached_scan_report_cmd_tlv(wmi_unified_t wmi_handle)
-{
-	wmi_buf_t wmi_buf;
-	QDF_STATUS status;
-	wmi_get_scan_cache_result_cmd_fixed_param *cmd;
-
-	/* Allocate the memory */
-	wmi_buf = wmi_buf_alloc(wmi_handle, sizeof(*cmd));
-	if (!wmi_buf)
-		return QDF_STATUS_E_NOMEM;
-
-	cmd = (wmi_get_scan_cache_result_cmd_fixed_param *)wmi_buf_data(wmi_buf);
-	WMITLV_SET_HDR(&cmd->tlv_header,
-		       WMITLV_TAG_STRUC_wmi_get_scan_cache_result_cmd_fixed_param,
-		       WMITLV_GET_STRUCT_TLVLEN(wmi_get_scan_cache_result_cmd_fixed_param));
-
-	wmi_mtrace(WMI_GET_SCAN_CACHE_RESULT_CMDID, NO_SESSION, 0);
-	status = wmi_unified_cmd_send(wmi_handle, wmi_buf, sizeof(*cmd),
-				      WMI_GET_SCAN_CACHE_RESULT_CMDID);
-	if (QDF_IS_STATUS_ERROR(status)) {
-		wmi_err("Failed to send get cached scan report %d", status);
-		wmi_buf_free(wmi_buf);
-	}
-
-	return status;
-}
-
-static void *
-extract_cached_scan_report_ev_params_tlv(wmi_unified_t wmi_handle,
-					 void *ev_data, uint32_t data_len)
-{
-	uint32_t malloc_len, idx;
-	wmi_scan_cache_info *ev_bss_data;
-	struct wlan_scan_cache_bss *bss_info;
-	struct wlan_scan_cache_scan_report *scan_report;
-	WMI_SCAN_CACHE_RESULT_EVENTID_param_tlvs *ev_buf;
-
-	ev_buf = (WMI_SCAN_CACHE_RESULT_EVENTID_param_tlvs *)ev_data;
-
-	scan_report = qdf_mem_malloc(sizeof(*scan_report));
-	if (!scan_report)
-		return NULL;
-
-	if (ev_buf->num_scan_freq_list) {
-		malloc_len = ev_buf->num_scan_freq_list * sizeof(uint32_t);
-		scan_report->freq_list = qdf_mem_malloc(malloc_len);
-		if (!scan_report->freq_list)
-			goto mem_free;
-
-		qdf_mem_copy(scan_report->freq_list, ev_buf->scan_freq_list,
-			     ev_buf->num_scan_freq_list * sizeof(uint32_t));
-	} else {
-		scan_report->freq_list = NULL;
-	}
-	scan_report->num_freq = ev_buf->num_scan_freq_list;
-	wmi_debug("Freq list %d, bss list %d",
-		  scan_report->num_freq, ev_buf->num_scan_cache_info);
-
-	if (!ev_buf->num_scan_cache_info) {
-		scan_report->bss_list = NULL;
-		scan_report->num_bss = 0;
-		return scan_report;
-	}
-
-	malloc_len =
-		ev_buf->num_scan_cache_info * sizeof(*scan_report->bss_list);
-	scan_report->bss_list =	qdf_mem_malloc(malloc_len);
-	if (!scan_report->bss_list)
-		goto mem_free;
-
-	ev_bss_data = ev_buf->scan_cache_info;
-	bss_info = scan_report->bss_list;
-	for (idx = 0; idx < ev_buf->num_scan_cache_info; idx++) {
-		bss_info = &scan_report->bss_list[idx];
-		bss_info->age_ms = ev_bss_data[idx].age_ms;
-		bss_info->cap_info = ev_bss_data[idx].capability;
-		bss_info->flags = ev_bss_data[idx].flags;
-		bss_info->rssi = ev_bss_data[idx].rssi;
-		bss_info->primary_freq =
-			ev_bss_data[idx].chanspec.primary_frequency;
-		bss_info->ccfs0_mhz =
-			ev_bss_data[idx].chanspec.center_frequency0;
-		bss_info->ccfs1_mhz =
-			ev_bss_data[idx].chanspec.center_frequency1;
-		bss_info->ch_width =
-			wmi_map_ch_width(ev_bss_data[idx].chanspec.width);
-		WMI_MAC_ADDR_TO_CHAR_ARRAY(&ev_bss_data[idx].bssid,
-					   &bss_info->bssid.bytes[0]);
-		if (ev_bss_data[idx].ssid.ssid_len > WLAN_SSID_MAX_LEN)
-			ev_bss_data[idx].ssid.ssid_len = WLAN_SSID_MAX_LEN;
-		qdf_mem_copy(bss_info->ssid.ssid, ev_bss_data[idx].ssid.ssid,
-			     ev_bss_data[idx].ssid.ssid_len);
-		bss_info->ssid.length = ev_bss_data[idx].ssid.ssid_len;
-		wmi_debug("age %d, cap 0x%x, flags 0x%x, rssi %d, freq %d, ccfs0 %d, ccfs1 %d, bw %d, BSSID: " QDF_MAC_ADDR_FMT ", SSID: " QDF_SSID_FMT,
-			  bss_info->age_ms, bss_info->cap_info,
-			  bss_info->flags, bss_info->rssi,
-			  bss_info->primary_freq, bss_info->ccfs0_mhz,
-			  bss_info->ccfs1_mhz, bss_info->ch_width,
-			  QDF_MAC_ADDR_REF(bss_info->bssid.bytes),
-			  QDF_SSID_REF(bss_info->ssid.length,
-				       bss_info->ssid.ssid));
-	}
-	scan_report->num_bss = ev_buf->num_scan_cache_info;
-
-	return scan_report;
-
-mem_free:
-	qdf_mem_free(scan_report->freq_list);
-	qdf_mem_free(scan_report);
-
-	return NULL;
-}
-#endif
-
 struct wmi_ops tlv_ops =  {
 	.send_vdev_create_cmd = send_vdev_create_cmd_tlv,
 	.send_vdev_delete_cmd = send_vdev_delete_cmd_tlv,
@@ -23566,11 +23399,6 @@ struct wmi_ops tlv_ops =  {
 	.send_opm_stats_cmd = send_opm_stats_cmd_tlv,
 #endif
 	.send_sta_vdev_report_ap_oper_bw_cmd = send_sta_vdev_report_ap_oper_bw_cmd_tlv,
-#ifdef FEATURE_WLAN_ZERO_POWER_SCAN
-	.send_get_cached_scan_report_cmd = send_get_cached_scan_report_cmd_tlv,
-	.extract_cached_scan_report_ev_params =
-				extract_cached_scan_report_ev_params_tlv,
-#endif
 };
 
 #ifdef WLAN_FEATURE_11BE_MLO
@@ -24139,10 +23967,6 @@ static void populate_tlv_events_id(WMI_EVT_ID *event_ids)
 #ifdef FEATURE_MGMT_RX_OVER_SRNG
 	event_ids[wmi_mgmt_srng_reap_eventid] = WMI_MGMT_SRNG_REAP_EVENTID;
 #endif
-#ifdef FEATURE_WLAN_ZERO_POWER_SCAN
-	event_ids[wmi_scan_cache_result_eventid] =
-					WMI_SCAN_CACHE_RESULT_EVENTID;
-#endif
 }
 
 #ifdef WLAN_FEATURE_LINK_LAYER_STATS
@@ -24168,8 +23992,6 @@ static void populate_tlv_service_mlo(uint32_t *wmi_service)
 {
 	wmi_service[wmi_service_mlo_sta_nan_ndi_support] =
 			WMI_SERVICE_MLO_STA_NAN_NDI_SUPPORT;
-	wmi_service[wmi_service_p2p_cancel_one_shot_noa_support] =
-			WMI_SERVICE_P2P_CANCEL_ONE_SHOT_NOA_SUPPORT;
 }
 #else /* WLAN_FEATURE_11BE_MLO */
 static inline void populate_tlv_service_mlo(uint32_t *wmi_service)
@@ -24806,15 +24628,6 @@ static void populate_tlv_service(uint32_t *wmi_service)
 #endif
 	wmi_service[wmi_service_use_sta_vdev_for_p2p_device] =
 				WMI_SERVICE_USE_STA_VDEV_FOR_P2P_DEVICE;
-#ifdef FEATURE_WLAN_ZERO_POWER_SCAN
-	wmi_service[wmi_service_scan_cache_report_support] =
-			WMI_SERVICE_SCAN_CACHE_REPORT_SUPPORT;
-#endif
-	wmi_service[wmi_service_mrsno_support] = WMI_SERVICE_MULTI_RSNO_SUPPORT;
-	wmi_service[wmi_service_twt_p2p_go_concurrency_support] =
-				WMI_SERVICE_TWT_P2P_GO_CONCURRENCY_SUPPORT;
-	wmi_service[wmi_service_sta_twt_stats_ext] =
-				WMI_SERVICE_STA_TWT_STATS_EXT;
 }
 
 /**

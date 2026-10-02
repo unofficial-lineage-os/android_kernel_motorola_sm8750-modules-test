@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2016-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2025 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -387,7 +387,7 @@ uint32_t dp_rx_process_be(struct dp_intr *int_ctx,
 	uint16_t msdu_len = 0;
 	uint16_t peer_id;
 	uint8_t vdev_id;
-	struct dp_txrx_peer *txrx_peer = NULL;
+	struct dp_txrx_peer *txrx_peer;
 	dp_txrx_ref_handle txrx_ref_handle = NULL;
 	struct dp_vdev *vdev;
 	uint32_t pkt_len = 0;
@@ -446,9 +446,6 @@ uint32_t dp_rx_process_be(struct dp_intr *int_ctx,
 	buf_size = wlan_cfg_rx_buffer_size(soc->wlan_cfg_ctx);
 
 more_data:
-	if (qdf_likely(txrx_peer))
-		dp_txrx_peer_unref_delete(txrx_ref_handle, DP_MOD_ID_RX);
-
 	/* reset local variables here to be re-used in the function */
 	nbuf_head = NULL;
 	nbuf_tail = NULL;
@@ -1120,6 +1117,10 @@ done:
 			       pkt_capture_offload,
 			       deliver_list_head,
 			       deliver_list_tail);
+
+	if (qdf_likely(txrx_peer))
+		dp_txrx_peer_unref_delete(txrx_ref_handle, DP_MOD_ID_RX);
+
 	/*
 	 * If we are processing in near-full condition, there are 3 scenario
 	 * 1) Ring entries has reached critical state
@@ -1159,9 +1160,6 @@ done:
 					     reo_ring_num);
 		}
 	}
-
-	if (qdf_likely(txrx_peer))
-		dp_txrx_peer_unref_delete(txrx_ref_handle, DP_MOD_ID_RX);
 
 	/* Update histogram statistics by looping through pdev's */
 	DP_RX_HIST_STATS_PER_PDEV();
@@ -1840,9 +1838,8 @@ dp_rx_intrabss_ucast_check_be(qdf_nbuf_t nbuf,
 						params->dest_soc,
 						msdu_metadata->da_idx);
 
-	da_peer = dp_tgt_txrx_peer_get_ref_by_id(params->dest_soc, da_peer_id,
-						 &txrx_ref_handle,
-						 DP_MOD_ID_RX);
+	da_peer = dp_txrx_peer_get_ref_by_id(params->dest_soc, da_peer_id,
+					     &txrx_ref_handle, DP_MOD_ID_RX);
 	if (!da_peer)
 		return false;
 

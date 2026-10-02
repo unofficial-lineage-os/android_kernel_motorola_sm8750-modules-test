@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2018-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2025 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -456,6 +456,7 @@ static int init_deinit_service_ready_event_handler(ol_scn_t scn_handle,
 	target_if_reg_set_6ghz_info(psoc);
 	target_if_reg_set_5dot9_ghz_info(psoc);
 	target_if_twt_fill_tgt_caps(psoc, wmi_handle);
+	target_if_update_aux_support(psoc);
 
 	/* Send num_msdu_desc to DP layer */
 	cdp_soc_set_param(wlan_psoc_get_dp_handle(psoc),
@@ -726,7 +727,6 @@ static int init_deinit_service_ext_ready_event_handler(ol_scn_t scn_handle,
 	struct wmi_unified *wmi_handle;
 	struct tgt_info *info;
 	wmi_legacy_service_ready_callback legacy_callback;
-	QDF_STATUS status;
 
 	if (!scn_handle) {
 		target_if_err("scn handle NULL in service ready handler");
@@ -786,16 +786,14 @@ static int init_deinit_service_ext_ready_event_handler(ol_scn_t scn_handle,
 	if (!wmi_service_enabled(wmi_handle, wmi_service_ext2_msg))
 		target_if_add_11ax_modes(psoc, tgt_hdl);
 
-	status = init_deinit_chainmask_table_alloc(&info->service_ext_param);
-	if (QDF_IS_STATUS_SUCCESS(status)) {
+	if (init_deinit_chainmask_table_alloc(
+				&(info->service_ext_param)) ==
+							QDF_STATUS_SUCCESS) {
 		err_code = init_deinit_populate_chainmask_tables(wmi_handle,
 				event,
 				&(info->service_ext_param.chainmask_table[0]));
 		if (err_code)
 			goto exit;
-	} else if (status != QDF_STATUS_E_NOSUPPORT) {
-		target_if_err("Failed to init chainmask table");
-		goto exit;
 	}
 
 	/* dbr_ring_caps can be absent if enough space is not available */

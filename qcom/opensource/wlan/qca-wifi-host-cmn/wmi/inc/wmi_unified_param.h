@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2016-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+ * Copyright (c) 2021-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -1088,7 +1088,6 @@ typedef enum {
 	WMI_HOST_REQUEST_VDEV_PRB_FILS_STAT = 0x10000,
 	WMI_HOST_REQUEST_PDEV_EXTD_STAT = 0x20000,
 	WMI_HOST_REQUEST_PDEV_TELEMETRY_STAT = 0x40000,
-	WMI_HOST_REQUEST_VDEV_RECV_BCN_STAT = 0x80000,
 } wmi_host_stats_id;
 
 typedef struct {
@@ -3403,20 +3402,6 @@ typedef struct {
 	uint32_t pout_reduction_db;
 } tt_level_config;
 
-/*
- * wmi_thermal_monitor_id: enum of thermal client
- * @WMI_HOST_THERMAL_MONITOR_APPS: Thermal monitor client of APPS
- * @WMI_HOST_THERMAL_MONITOR_WPSS: Thermal monitor client for WPSS
- * @WMI_HOST_THERMAL_MONITOR_DDR_BWM: Client for DDR BW mitigation
- * @WMI_HOST_THERMAL_MONITOR_INVALID: Invalid client
- */
-enum wmi_thermal_monitor_id {
-	WMI_HOST_THERMAL_MONITOR_APPS = 1,
-	WMI_HOST_THERMAL_MONITOR_WPSS,
-	WMI_HOST_THERMAL_MONITOR_DDR_BWM,
-	WMI_HOST_THERMAL_MONITOR_INVALID,
-};
-
 /**
  * struct thermal_mitigation_params - Thermal mitigation params
  * @pdev_id: pdev identifier
@@ -3424,7 +3409,7 @@ enum wmi_thermal_monitor_id {
  * @dc: DC
  * @dc_per_event: DC per event
  * @num_thermal_conf: Number of thermal configurations to be sent
- * @client_id: Thermal client id
+ * @client_id: Thermal client id either apps or wpps
  * @priority: Priority of apps/wpps
  * @levelconf: TT level config params
  */
@@ -3434,7 +3419,7 @@ struct thermal_mitigation_params {
 	uint32_t dc;
 	uint32_t dc_per_event;
 	uint8_t num_thermal_conf;
-	enum wmi_thermal_monitor_id client_id;
+	uint8_t client_id;
 	uint8_t priority;
 	tt_level_config levelconf[MAX_THERMAL_LEVELS];
 };
@@ -4588,7 +4573,6 @@ struct rx_reorder_queue_remove_params {
  * @num_mib_extd_stats: number of extended mib stats
  * @num_peer_stats_info_ext: number of peer extended stats info
  * @num_vdev_extd_stats: number of vdev extended stats info
- * @num_recv_bcn_stats: number of receive bcn stats
  * @last_event: specify if the current event is the last event
  */
 typedef struct {
@@ -4608,7 +4592,6 @@ typedef struct {
 	uint32_t num_mib_extd_stats;
 	uint32_t num_peer_stats_info_ext;
 	uint32_t num_vdev_extd_stats;
-	uint32_t num_recv_bcn_stats;
 	uint32_t last_event;
 } wmi_host_stats_event;
 
@@ -5244,26 +5227,6 @@ struct wmi_host_pdev_telemetry_stats {
 	uint32_t estimated_air_time_per_ac;
 };
 
-/**
- * struct wmi_bcn_his_info - bcn history info
- * @bcn_rssi: beacon rssi
- * @bcn_tsf: beacon tsf
- */
-struct wmi_bcn_his_info {
-	int32_t bcn_rssi;
-	uint32_t bcn_tsf;
-};
-
-/**
- * struct wmi_host_recv_bcn_stats - receive beacon stats
- * @vdev_id: vdev id
- * @bcn_history: structure to wmi_bcn_his_info
- */
-struct wmi_host_recv_bcn_stats {
-	uint32_t vdev_id;
-	struct wmi_bcn_his_info bcn_history[WMI_MAX_BCN_HISTORY];
-};
-
 #define WMI_EVENT_ID_INVALID 0
 /*
  * Host based ENUM IDs for events to abstract target enums for event_id
@@ -5635,10 +5598,6 @@ typedef enum {
 #ifdef FEATURE_MGMT_RX_OVER_SRNG
 	wmi_mgmt_srng_reap_eventid,
 #endif
-#ifdef FEATURE_WLAN_ZERO_POWER_SCAN
-	wmi_scan_cache_result_eventid,
-#endif
-
 	wmi_events_max,
 } wmi_conv_event_id;
 
@@ -6380,10 +6339,6 @@ typedef enum {
 	VDEV_PARAM(vdev_param_hwcts2self_ofdma,
 		   VDEV_PARAM_HWCTS2SELF_OFDMA),
 	VDEV_PARAM(vdev_param_twt_unavail_mode, VDEV_PARAM_TWT_UNAVAIL_MODE),
-	VDEV_PARAM(vdev_param_connect_ext_features,
-		   VDEV_PARAM_CONNECT_EXT_FEATURES),
-	VDEV_PARAM(vdev_param_set_go_cancel_noa,
-		   VDEV_PARAM_SET_GO_CANCEL_NOA),
 	vdev_param_max,
 } wmi_conv_vdev_param_id;
 
@@ -6813,14 +6768,6 @@ typedef enum {
 	wmi_service_usd_support,
 #endif
 	wmi_service_use_sta_vdev_for_p2p_device,
-#ifdef FEATURE_WLAN_ZERO_POWER_SCAN
-	wmi_service_scan_cache_report_support,
-#endif
-	wmi_service_mrsno_support,
-	wmi_service_twt_p2p_go_concurrency_support,
-	wmi_service_sta_twt_stats_ext,
-	wmi_service_p2p_cancel_one_shot_noa_support,
-
 	wmi_services_max,
 } wmi_conv_service_ids;
 #define WMI_SERVICE_UNAVAILABLE 0xFFFF
@@ -7211,8 +7158,6 @@ struct target_feature_set {
  * @con_mode_monitor: Device is in Full monitor mode
  * @mgmt_rx_srng_support: Is mgmt rx over srng supported
  * @enable_optimize_power: Enable power optimization
- * @enable_bcn_rssi_history_report: Enable beacon rssi history report
- * @haps_feature_flags: HAPS flags setting for power save config
  */
 typedef struct {
 	uint32_t num_vdevs;
@@ -7359,8 +7304,6 @@ typedef struct {
 	bool mgmt_rx_srng_support;
 #endif
 	bool enable_optimize_power;
-	bool enable_bcn_rssi_history_report;
-	uint32_t haps_feature_flags;
 } target_resource_config;
 
 /**

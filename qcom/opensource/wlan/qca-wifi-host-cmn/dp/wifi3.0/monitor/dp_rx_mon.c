@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2025 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -35,9 +35,6 @@
 #include "htt.h"
 #ifdef FEATURE_PERPKT_INFO
 #include "dp_ratetable.h"
-#endif
-#ifdef WLAN_LOCAL_PKT_CAPTURE_SUBFILTER
-#include <cdp_txrx_mon.h>
 #endif
 
 #ifndef IEEE80211_FCO_SUBTYPE_ACTION_NO_ACK
@@ -1748,94 +1745,7 @@ dp_rx_handle_smart_mesh_mode(struct dp_soc *soc, struct dp_pdev *pdev,
 	return 0;
 }
 
-#ifdef WLAN_LOCAL_PKT_CAPTURE_SUBFILTER
-static bool
-dp_rx_mon_lpc_subfiltering(struct dp_pdev *pdev, qdf_nbuf_t buf)
-{
-	uint8_t type;
-	struct ieee80211_frame *dot11hdr;
-
-	dot11hdr = (struct ieee80211_frame *)qdf_nbuf_data(buf);
-	type = (dot11hdr->i_fc[0] & QDF_IEEE80211_FC0_TYPE_MASK);
-
-	switch (type) {
-	case QDF_IEEE80211_FC0_TYPE_MGT:
-		return dp_mon_is_mgmt_filter_en(pdev, dot11hdr, buf,
-						IEEE80211_FC1_DIR_FROMDS);
-	case QDF_IEEE80211_FC0_TYPE_CTL:
-		return dp_mon_is_ctrl_filter_en(pdev, dot11hdr,
-						IEEE80211_FC1_DIR_FROMDS);
-	case QDF_IEEE80211_FC0_TYPE_DATA:
-		if (qdf_nbuf_has_fraglist(buf)) {
-			qdf_nbuf_t head_buf;
-			bool filter_en;
-
-			/*
-			 * TX and RX use frag list in different ways.
-			 * In TX, head skb (allocated for rtap hdr) followed by
-			 * an extended list containing the .11 frame.
-			 * However, on the RX side,the head skb contains both
-			 * the rtap hdr and the .11 frame.Since the QDF API
-			 * `qdf_nbuf_nonlinear_data` is designed generically,
-			 * it cannot handle these two different types of
-			 * fraglists. To address this, a temporary head buffer
-			 * is created, and the existing extended list is added
-			 * to this new buffer.
-			 */
-			head_buf = qdf_nbuf_alloc(pdev->soc->osdev,
-						  MAX_MONITOR_HEADER,
-						  MAX_MONITOR_HEADER,
-						  4, FALSE);
-
-			qdf_nbuf_append_ext_list(head_buf, buf,
-						 qdf_nbuf_len(buf));
-			filter_en = dp_mon_is_data_filter_en(pdev, dot11hdr,
-							     head_buf,
-							     IEEE80211_FC1_DIR_FROMDS);
-			skb_shinfo(head_buf)->frag_list = NULL;
-			qdf_nbuf_free(head_buf);
-			head_buf = NULL;
-			return filter_en;
-		}
-			return dp_mon_is_data_filter_en(pdev, dot11hdr, buf,
-							IEEE80211_FC1_DIR_FROMDS);
-	default:
-		return false;
-	}
-}
-#else
-static inline bool
-dp_rx_mon_lpc_subfiltering(struct dp_pdev *pdev, qdf_nbuf_t buf)
-{
-	return true;
-}
-#endif
-
 #ifdef WLAN_FEATURE_LOCAL_PKT_CAPTURE
-
-/**
- * dp_rx_mon_remove_mic_data() - API to remove mic placeholder data added by
- * CRYPTO
- * @mon_mac: mon_mac handle
- * @buf: pointer to mpdu buffer
- *
- * Return: void
- */
-
-static void
-dp_rx_mon_remove_mic_data(struct dp_mon_mac *mon_mac, qdf_nbuf_t buf)
-{
-	uint8_t user_id;
-	uint8_t mic_len;
-	struct mon_rx_user_status *rx_user_status;
-
-	user_id = mon_mac->ppdu_info.user_id;
-	rx_user_status = &mon_mac->ppdu_info.rx_user_status[user_id];
-	mic_len = hal_get_rx_status_mic_len(rx_user_status);
-	if (mic_len > 0)
-		qdf_nbuf_trim_tail(buf, mic_len);
-}
-
 /**
  * dp_rx_mon_stitch_mpdu() - Stich MPDU from MSDU
  * @mon_mac: mon_mac handle
@@ -1883,10 +1793,8 @@ dp_rx_mon_stitch_mpdu(struct dp_mon_mac *mon_mac, qdf_nbuf_t tail)
 		 * 4 bytes of RX FCS in the tail to avoid parsing issue.
 		 */
 		if (!head_frag_list &&
-		    qdf_nbuf_len(mpdu_buf) < LPC_RX_HDR_DMA_LENGTH) {
+		    qdf_nbuf_len(mpdu_buf) < LPC_RX_HDR_DMA_LENGTH)
 			qdf_nbuf_trim_tail(mpdu_buf, HAL_RX_FCS_LEN);
-			dp_rx_mon_remove_mic_data(mon_mac, mpdu_buf);
-		}
 
 		qdf_nbuf_append_ext_list(mpdu_buf, head_frag_list,
 					 frag_list_sum_len);
@@ -1896,7 +1804,7 @@ dp_rx_mon_stitch_mpdu(struct dp_mon_mac *mon_mac, qdf_nbuf_t tail)
 	return mpdu_buf;
 
 fail:
-	dp_err_rl("nbuf copy failed len: %zu Q1: %d Q2: %d", qdf_nbuf_len(nbuf),
+	dp_err_rl("nbuf copy failed len: %d Q1: %d Q2: %d", qdf_nbuf_len(nbuf),
 		  qdf_nbuf_queue_len(&mon_mac->msdu_queue),
 		  qdf_nbuf_queue_len(&mon_mac->mpdu_queue));
 
@@ -1910,58 +1818,6 @@ fail:
 
 	return NULL;
 }
-
-#ifdef WLAN_LOCAL_PKT_CAPTURE_SUBFILTER
-static void
-dp_rx_mon_disable_pf(qdf_nbuf_t rxbuf)
-{
-	char *data = NULL;
-	uint8_t *ccmp_info;
-	uint16_t hdr_len;
-	uint16_t rtap_len = 0;
-	uint16_t pkt_len;
-	tpSirMacFrameCtl fc;
-	void *soc;
-
-	soc = cds_get_context(QDF_MODULE_ID_SOC);
-	if (!cdp_is_local_pkt_capture_running(soc, OL_TXRX_PDEV_ID))
-		return;
-
-	rtap_len = *(uint16_t *)(qdf_nbuf_data(rxbuf) + 2);
-	data = qdf_nbuf_data(rxbuf) + rtap_len;
-	pkt_len = qdf_nbuf_headlen(rxbuf);
-
-	fc = (tpSirMacFrameCtl)data;
-
-	if (fc->wep) {
-		fc->wep = 0;
-		hdr_len = sizeof(tSirMacMgmtHdr);
-
-		/* Add offset of QOS control,
-		 * HTC control field and CCMP params to reach data field
-		 */
-		if (fc->subType == IEEE80211_FC0_TYPE_DATA)
-			hdr_len += QOS_CTRL_LEN;
-
-		if (fc->order)
-			hdr_len += HTC_CTRL_LEN;
-
-		ccmp_info = data + hdr_len;
-		qdf_mem_copy(data, fc, sizeof(tSirMacFrameCtl));
-
-		hdr_len += CCMP_PARAM_LEN;
-		data += hdr_len;
-		pkt_len -= (hdr_len + rtap_len);
-		qdf_mem_copy(ccmp_info, data, pkt_len);
-		rxbuf->len -= CCMP_PARAM_LEN;
-	}
-}
-#else
-static void
-dp_rx_mon_disable_pf(qdf_nbuf_t rxbuf)
-{
-}
-#endif
 
 /**
  * dp_rx_mon_send_mpdu() - Send MPDU to stack
@@ -1997,9 +1853,6 @@ dp_rx_mon_send_mpdu(struct dp_pdev *pdev, struct dp_mon_mac *mon_mac,
 	mon_mac->ppdu_info.rx_status.chan_noise_floor =
 			pdev->chan_noise_floor;
 
-	if (!dp_rx_mon_lpc_subfiltering(pdev, mpdu_buf))
-		goto fail_free;
-
 	if (!qdf_nbuf_update_radiotap(&mon_mac->ppdu_info.rx_status, mpdu_buf,
 				      qdf_nbuf_headroom(mpdu_buf))) {
 		DP_STATS_INC(pdev, dropped.mon_radiotap_update_err, 1);
@@ -2008,11 +1861,9 @@ dp_rx_mon_send_mpdu(struct dp_pdev *pdev, struct dp_mon_mac *mon_mac,
 	}
 
 	mon_vdev = vdev->monitor_vdev;
-	if (qdf_likely(mon_vdev && mon_vdev->osif_rx_mon)) {
-		dp_rx_mon_disable_pf(mpdu_buf);
+	if (qdf_likely(mon_vdev && mon_vdev->osif_rx_mon))
 		mon_vdev->osif_rx_mon(vdev->osif_vdev,
 				      mpdu_buf, NULL);
-	}
 
 	dp_vdev_unref_delete(soc, vdev, DP_MOD_ID_MISC);
 	return;
@@ -2300,13 +2151,12 @@ QDF_STATUS dp_rx_mon_deliver(struct dp_soc *soc, uint32_t mac_id,
 
 	mon_mac = dp_get_mon_mac(pdev, mac_id);
 	mon_pdev = pdev->monitor_pdev;
+	rs = &mon_mac->rx_mon_recv_status;
 
 	if (!mon_mac && !mon_mac->mvdev && !mon_pdev->mcopy_mode &&
-	    !mon_pdev->rx_pktlog_cbf &&
-	    mon_mac->mon_chan_num == INVALID_MON_CHAN_NUM)
+	    !mon_pdev->rx_pktlog_cbf)
 		goto mon_deliver_fail;
 
-	rs = &mon_mac->rx_mon_recv_status;
 	/* restitch mon MPDU for delivery via monitor interface */
 	mon_mpdu = dp_rx_mon_restitch_mpdu(soc, mac_id, head_msdu,
 					   tail_msdu, rs);

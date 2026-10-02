@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2011-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2025 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -98,8 +98,6 @@
 #define CDP_DP_RX_FISA_STATS	   26
 #define CDP_DP_SWLM_STATS	   27
 #define CDP_DP_TX_HW_LATENCY_STATS 28
-#define CDP_DP_LAPB_STATS	   29
-#define CDP_DP_HAPS_STATS          31
 
 #define WME_AC_TO_TID(_ac) (       \
 		((_ac) == WME_AC_VO) ? 6 : \
@@ -176,13 +174,6 @@
 #define FILTER_DATA_UCAST		0x8000
 #define FILTER_DATA_DATA		0x0001
 #define FILTER_DATA_NULL		0x0008
-
-#if defined(QCA_WIFI_PEACH) || defined(QCA_WIFI_WCN7750)
-#define FP_MGMT_FILTER	FILTER_MGMT_ALL & \
-			~(FILTER_MGMT_PROBE_RES | FILTER_MGMT_BEACON)
-#else
-#define FP_MGMT_FILTER	FILTER_MGMT_ALL
-#endif
 
 /*
  * Monitor version 1 for LT chipset
@@ -1700,7 +1691,6 @@ typedef union cdp_config_param_t {
 		uint16_t peer_id;
 		struct cdp_pkt_info pkts;
 	} pkt_info;
-	bool cdp_dyn_resource_mgr_support;
 } cdp_config_param_type;
 
 /**
@@ -1890,7 +1880,6 @@ enum cdp_vdev_param_type {
  * @CDP_SCAN_RADIO_SUPPORT: Scan Radio capability
  * @CDP_SAWF_MSDUQ_RECLAIM_SUPPORT: To initiate msduq reclaim related functions
  * @CDP_VDEV_TX_NSS_SUPPORT: FW Support vdev Tx NSS command
- * @CDP_DYN_RESOURCE_MGR_SUPPORT: Dynamic RX buffer allocation support
  */
 enum cdp_psoc_param_type {
 	CDP_ENABLE_RATE_STATS,
@@ -1929,7 +1918,6 @@ enum cdp_psoc_param_type {
 	CDP_SAWF_MSDUQ_RECLAIM_SUPPORT,
 #endif
 	CDP_VDEV_TX_NSS_SUPPORT,
-	CDP_DYN_RESOURCE_MGR_SUPPORT,
 };
 
 #ifdef CONFIG_AP_PLATFORM
@@ -3095,28 +3083,6 @@ struct cdp_txrx_stats_req {
 	char		*peer_addr;
 };
 
-#ifdef WLAN_LOCAL_PKT_CAPTURE_SUBFILTER
-/**
- * struct cdp_subfilter_monitor_filter - monitor subfilter info
- * @data_tx_frame_filter: Subfilter configuration for TX DATA
- * @data_rx_frame_filter: Subfilter configuration for RX DATA
- * @mgmt_tx_frame_filter: Subfilter configuration for TX MGMT
- * @mgmt_rx_frame_filter: Subfilter configuration for RX MGMT
- * @ctrl_tx_frame_filter: Subfilter configuration for TX CTRL
- * @ctrl_rx_frame_filter: Subfilter configuration for RX CTRL
- * @connected_beacon_interval: Interval for connected beacon
- */
-
-struct cdp_subfilter_monitor_filter {
-	uint32_t data_tx_frame_filter;
-	uint32_t data_rx_frame_filter;
-	uint32_t mgmt_tx_frame_filter;
-	uint32_t mgmt_rx_frame_filter;
-	uint32_t ctrl_tx_frame_filter;
-	uint32_t ctrl_rx_frame_filter;
-	uint32_t connected_beacon_interval;
-};
-#endif
 /**
  * struct cdp_monitor_filter - monitor filter info
  * @mode: set filter mode
@@ -3129,7 +3095,6 @@ struct cdp_subfilter_monitor_filter {
  * @fpmo_mgmt : set Filter Pass and Monitor Other MGMT Configuration
  * @fpmo_ctrl : set Filter Pass and Monitor Other CTRL Configuration
  * @fpmo_data : set Filter Pass and Monitor Other DATA Configuration
- * @fp_subfilter: set Filter Pass subfilter configuration
  */
 struct cdp_monitor_filter {
 	uint16_t mode;
@@ -3142,9 +3107,6 @@ struct cdp_monitor_filter {
 	uint16_t fpmo_mgmt;
 	uint16_t fpmo_ctrl;
 	uint16_t fpmo_data;
-#ifdef WLAN_LOCAL_PKT_CAPTURE_SUBFILTER
-	struct cdp_subfilter_monitor_filter fp_subfilter;
-#endif
 };
 
 /**

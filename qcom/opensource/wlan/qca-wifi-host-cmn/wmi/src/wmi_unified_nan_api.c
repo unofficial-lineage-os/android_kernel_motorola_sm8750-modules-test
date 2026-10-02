@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2013-2020 The Linux Foundation. All rights reserved.
- * Copyright (c) 2023,2025 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2023 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -45,14 +45,13 @@ QDF_STATUS wmi_unified_nan_disable_req_cmd(wmi_unified_t wmi_handle,
 
 QDF_STATUS wmi_extract_nan_event_rsp(wmi_unified_t wmi_handle, void *evt_buf,
 				     struct nan_event_params *nan_evt_params,
-				     uint8_t **nan_msg_buf, uint32_t nan_config)
+				     uint8_t **nan_msg_buf)
 {
 	if (wmi_handle->ops->extract_nan_event_rsp)
 		return wmi_handle->ops->extract_nan_event_rsp(wmi_handle,
 							      evt_buf,
 							      nan_evt_params,
-							      nan_msg_buf,
-							      nan_config);
+							      nan_msg_buf);
 
 	return QDF_STATUS_E_FAILURE;
 }

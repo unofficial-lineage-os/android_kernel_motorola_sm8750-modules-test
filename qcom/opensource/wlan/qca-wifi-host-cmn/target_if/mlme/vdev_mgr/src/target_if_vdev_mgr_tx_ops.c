@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2019-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+ * Copyright (c) 2021-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -39,7 +39,6 @@
 #include <cdp_txrx_ctrl.h>
 #include <target_if_psoc_timer_tx_ops.h>
 #include <target_if_psoc_wake_lock.h>
-#include <wlan_psoc_mlme_api.h>
 
 static QDF_STATUS target_if_vdev_mgr_register_event_handler(
 					struct wlan_objmgr_psoc *psoc)
@@ -53,19 +52,10 @@ static QDF_STATUS target_if_vdev_mgr_unregister_event_handler(
 	return target_if_vdev_mgr_wmi_event_unregister(psoc);
 }
 
-/**
- * _target_if_vdev_mgr_rsp_timer_stop() - API to stop response timer for
- * vdev manager operations
- * @psoc: pointer to psoc object
- * @vdev_rsp: vdev response timer
- * @clear_bit: enum of wlan_vdev_mgr_tgt_if_rsp_bit
- *
- * Return: QDF_STATUS_SUCCESS on success, QDF_STATUS_E_** on error
- */
-static QDF_STATUS
-_target_if_vdev_mgr_rsp_timer_stop(struct wlan_objmgr_psoc *psoc,
-				   struct vdev_response_timer *vdev_rsp,
-				   enum wlan_vdev_mgr_tgt_if_rsp_bit clear_bit)
+QDF_STATUS
+target_if_vdev_mgr_rsp_timer_stop(struct wlan_objmgr_psoc *psoc,
+				  struct vdev_response_timer *vdev_rsp,
+				  enum wlan_vdev_mgr_tgt_if_rsp_bit clear_bit)
 {
 	struct wlan_lmac_if_mlme_tx_ops *txops;
 
@@ -82,15 +72,14 @@ _target_if_vdev_mgr_rsp_timer_stop(struct wlan_objmgr_psoc *psoc,
 		 * which timer stop is not required
 		 */
 		if (vdev_rsp->timer_status == QDF_STATUS_E_TIMEOUT) {
-			if (clear_bit == DELETE_RESPONSE_BIT)
-				txops->psoc_vdev_rsp_timer_deinit(
-							psoc,
-							vdev_rsp->vdev_id);
+			if (clear_bit == DELETE_RESPONSE_BIT) {
+				qdf_atomic_set(&vdev_rsp->rsp_timer_inuse, 0);
+				vdev_rsp->psoc = NULL;
+			}
 		} else {
 			if (clear_bit == DELETE_RESPONSE_BIT) {
-				txops->psoc_vdev_rsp_timer_deinit(
-							psoc,
-							vdev_rsp->vdev_id);
+				txops->psoc_vdev_rsp_timer_deinit(psoc,
+								  vdev_rsp->vdev_id);
 			} else {
 				qdf_timer_stop(&vdev_rsp->rsp_timer);
 			}
@@ -112,19 +101,10 @@ _target_if_vdev_mgr_rsp_timer_stop(struct wlan_objmgr_psoc *psoc,
 	return QDF_STATUS_E_FAILURE;
 }
 
-/**
- * _target_if_vdev_mgr_rsp_timer_start() - API to start response timer for
- * vdev manager operations
- * @psoc: pointer to psoc object
- * @vdev_rsp: vdev response timer
- * @set_bit: enum of wlan_vdev_mgr_tgt_if_rsp_bit
- *
- * Return: QDF_STATUS_SUCCESS on success, QDF_STATUS_E_** on error
- */
-static QDF_STATUS
-_target_if_vdev_mgr_rsp_timer_start(struct wlan_objmgr_psoc *psoc,
-				    struct vdev_response_timer *vdev_rsp,
-				    enum wlan_vdev_mgr_tgt_if_rsp_bit set_bit)
+QDF_STATUS
+target_if_vdev_mgr_rsp_timer_start(struct wlan_objmgr_psoc *psoc,
+				   struct vdev_response_timer *vdev_rsp,
+				   enum wlan_vdev_mgr_tgt_if_rsp_bit set_bit)
 {
 	uint8_t rsp_pos;
 	uint8_t vdev_id;
@@ -168,59 +148,6 @@ _target_if_vdev_mgr_rsp_timer_start(struct wlan_objmgr_psoc *psoc,
 	return QDF_STATUS_SUCCESS;
 }
 
-static QDF_STATUS
-target_if_vdev_mgr_rsp_tmr_mutex_acquire(struct wlan_objmgr_psoc *psoc)
-{
-	struct psoc_mlme_obj *mlme_psoc_obj;
-
-	mlme_psoc_obj = wlan_psoc_mlme_get_cmpt_obj(psoc);
-
-	if (!mlme_psoc_obj)
-		return QDF_STATUS_E_INVAL;
-
-	return qdf_mutex_acquire(&mlme_psoc_obj->vdev_rsp_timer_mutex);
-}
-
-static QDF_STATUS
-target_if_vdev_mgr_rsp_tmr_mutex_release(struct wlan_objmgr_psoc *psoc)
-{
-	struct psoc_mlme_obj *mlme_psoc_obj;
-
-	mlme_psoc_obj = wlan_psoc_mlme_get_cmpt_obj(psoc);
-
-	if (!mlme_psoc_obj)
-		return QDF_STATUS_E_INVAL;
-
-	return qdf_mutex_release(&mlme_psoc_obj->vdev_rsp_timer_mutex);
-}
-
-QDF_STATUS
-target_if_vdev_mgr_rsp_timer_stop(struct wlan_objmgr_psoc *psoc,
-				  struct vdev_response_timer *vdev_rsp,
-				  enum wlan_vdev_mgr_tgt_if_rsp_bit clear_bit)
-{
-	QDF_STATUS status;
-
-	target_if_vdev_mgr_rsp_tmr_mutex_acquire(psoc);
-	status = _target_if_vdev_mgr_rsp_timer_stop(psoc, vdev_rsp, clear_bit);
-	target_if_vdev_mgr_rsp_tmr_mutex_release(psoc);
-
-	return status;
-}
-
-QDF_STATUS
-target_if_vdev_mgr_rsp_timer_start(struct wlan_objmgr_psoc *psoc,
-				   struct vdev_response_timer *vdev_rsp,
-				   enum wlan_vdev_mgr_tgt_if_rsp_bit set_bit)
-{
-	QDF_STATUS status;
-
-	target_if_vdev_mgr_rsp_tmr_mutex_acquire(psoc);
-	status = _target_if_vdev_mgr_rsp_timer_start(psoc, vdev_rsp, set_bit);
-	target_if_vdev_mgr_rsp_tmr_mutex_release(psoc);
-
-	return status;
-}
 
 struct wmi_unified
 *target_if_vdev_mgr_wmi_handle_get(struct wlan_objmgr_vdev *vdev)
@@ -507,7 +434,7 @@ static QDF_STATUS target_if_vdev_mgr_create_send(
 					struct wlan_objmgr_vdev *vdev,
 					struct vdev_create_params *param)
 {
-	QDF_STATUS status, timer_status;
+	QDF_STATUS status;
 	struct wmi_unified *wmi_handle;
 	uint8_t vap_addr[QDF_MAC_ADDR_SIZE] = {0};
 	struct wlan_lmac_if_mlme_tx_ops *txops;
@@ -544,10 +471,8 @@ static QDF_STATUS target_if_vdev_mgr_create_send(
 					      param);
 
 	vdev_id = wlan_vdev_get_id(vdev);
-	timer_status = txops->psoc_vdev_rsp_timer_init(psoc, vdev_id);
-
-	if (QDF_IS_STATUS_ERROR(timer_status) && QDF_IS_STATUS_SUCCESS(status))
-		status = timer_status;
+	if (QDF_IS_STATUS_SUCCESS(status))
+		status = txops->psoc_vdev_rsp_timer_init(psoc, vdev_id);
 
 	return status;
 }
@@ -592,7 +517,6 @@ static QDF_STATUS target_if_vdev_mgr_start_send(
 
 	vdev_rsp->expire_time = START_RESPONSE_TIMER;
 	target_if_wake_lock_timeout_acquire(psoc, START_WAKELOCK);
-	target_if_acquire_vdev_cmd_rt_lock(vdev_rsp);
 
 	if (param->is_restart)
 		target_if_vdev_mgr_rsp_timer_start(psoc, vdev_rsp,
@@ -606,7 +530,6 @@ static QDF_STATUS target_if_vdev_mgr_start_send(
 		vdev_rsp->timer_status = QDF_STATUS_E_CANCELED;
 		vdev_rsp->expire_time = 0;
 		target_if_wake_lock_timeout_release(psoc, START_WAKELOCK);
-		target_if_release_vdev_cmd_rt_lock(psoc, vdev_id);
 		if (param->is_restart)
 			target_if_vdev_mgr_rsp_timer_stop(psoc, vdev_rsp,
 							  RESTART_RESPONSE_BIT);
@@ -757,7 +680,6 @@ static QDF_STATUS target_if_vdev_mgr_delete_send(
 	target_if_vdev_mgr_rsp_timer_start(psoc, vdev_rsp,
 					   DELETE_RESPONSE_BIT);
 	target_if_wake_lock_timeout_acquire(psoc, DELETE_WAKELOCK);
-	target_if_acquire_vdev_cmd_rt_lock(vdev_rsp);
 
 	status = wmi_unified_vdev_delete_send(wmi_handle, param->vdev_id);
 	if (QDF_IS_STATUS_SUCCESS(status)) {
@@ -768,7 +690,6 @@ static QDF_STATUS target_if_vdev_mgr_delete_send(
 					 wmi_service_sync_delete_cmds) ||
 		    wlan_psoc_nif_feat_cap_get(psoc,
 					       WLAN_SOC_F_TESTMODE_ENABLE)) {
-			target_if_release_vdev_cmd_rt_lock(psoc, vdev_id);
 			target_if_vdev_mgr_rsp_timer_stop(psoc, vdev_rsp,
 							  DELETE_RESPONSE_BIT);
 			target_if_vdev_mgr_delete_rsp_handler(psoc, vdev_id,
@@ -777,7 +698,6 @@ static QDF_STATUS target_if_vdev_mgr_delete_send(
 	} else {
 		vdev_rsp->expire_time = 0;
 		vdev_rsp->timer_status = QDF_STATUS_E_CANCELED;
-		target_if_release_vdev_cmd_rt_lock(psoc, vdev_id);
 		target_if_vdev_mgr_rsp_timer_stop(psoc, vdev_rsp,
 						  DELETE_RESPONSE_BIT);
 		target_if_wake_lock_timeout_release(psoc, DELETE_WAKELOCK);
@@ -833,9 +753,7 @@ static QDF_STATUS target_if_vdev_mgr_stop_send(
 	 * In auth/assoc failure scenario UP command is not sent
 	 * so release the START wakelock here.
 	 */
-	target_if_release_vdev_cmd_rt_lock(psoc, vdev_id);
 	target_if_wake_lock_timeout_release(psoc, START_WAKELOCK);
-	target_if_acquire_vdev_cmd_rt_lock(vdev_rsp);
 	target_if_wake_lock_timeout_acquire(psoc, STOP_WAKELOCK);
 
 	status = wmi_unified_vdev_stop_send(wmi_handle, param);
@@ -845,7 +763,6 @@ static QDF_STATUS target_if_vdev_mgr_stop_send(
 		target_if_vdev_mgr_rsp_timer_stop(psoc, vdev_rsp,
 						  STOP_RESPONSE_BIT);
 		target_if_wake_lock_timeout_release(psoc, STOP_WAKELOCK);
-		target_if_release_vdev_cmd_rt_lock(psoc, vdev_id);
 	} else {
 		target_if_vdev_stop_link_handler(vdev);
 	}
@@ -879,7 +796,6 @@ static QDF_STATUS target_if_vdev_mgr_down_send(
 
 	status = wmi_unified_vdev_down_send(wmi_handle, param->vdev_id);
 	target_if_wake_lock_timeout_release(psoc, STOP_WAKELOCK);
-	target_if_release_vdev_cmd_rt_lock(psoc, param->vdev_id);
 
 	return status;
 }
@@ -913,7 +829,6 @@ static QDF_STATUS target_if_vdev_mgr_up_send(
 
 	status = wmi_unified_vdev_up_send(wmi_handle, bssid, param);
 	target_if_wake_lock_timeout_release(psoc, START_WAKELOCK);
-	target_if_release_vdev_cmd_rt_lock(psoc, param->vdev_id);
 
 	return status;
 }

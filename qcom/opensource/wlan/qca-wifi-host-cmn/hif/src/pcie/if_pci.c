@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2013-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2025 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -3236,7 +3236,7 @@ void hif_pci_irq_set_affinity_hint(struct hif_exec_context *hif_ext_group,
 		qdf_cpumask_clear(&new_cpu_mask);
 		 qdf_for_each_online_cpu(cpus) {
 			if (BIT(cpus) & cpumask)
-				qdf_cpumask_set_cpu(cpus, &new_cpu_mask);
+				qdf_cpumask_set_cpu(i, &new_cpu_mask);
 		}
 
 		if (!qdf_cpumask_empty(&new_cpu_mask)) {
@@ -3794,7 +3794,6 @@ static void hif_pci_init_reg_windowing_support(struct hif_pci_softc *sc,
 	case TARGET_TYPE_KIWI:
 	case TARGET_TYPE_MANGO:
 	case TARGET_TYPE_PEACH:
-	case TARGET_TYPE_QCC2072:
 		sc->use_register_windowing = true;
 		qdf_spinlock_create(&sc->register_access_lock);
 		sc->register_window = 0;
@@ -4019,8 +4018,7 @@ int hif_pci_addr_in_boundary(struct hif_softc *scn, uint32_t offset)
 	    tgt_info->target_type == TARGET_TYPE_AR6320 ||
 	    tgt_info->target_type == TARGET_TYPE_KIWI ||
 	    tgt_info->target_type == TARGET_TYPE_MANGO ||
-	    tgt_info->target_type == TARGET_TYPE_PEACH ||
-	    tgt_info->target_type == TARGET_TYPE_QCC2072) {
+	    tgt_info->target_type == TARGET_TYPE_PEACH) {
 		/*
 		 * Need to consider offset's memtype for QCA6290/QCA8074,
 		 * also mem_len and DRAM_BASE_ADDRESS/DRAM_SIZE need to be

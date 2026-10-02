@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2025 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -450,38 +450,11 @@
 
 /*
  * <ini>
- * sta_sap_mcc_weightage - Update STA+SAP MCC candidate scoring param based on
- *                         STA_SAP_MCC weightage
- * @Min: 0
- * @Max: 100
- * @Default: 20
- *
- * This ini is used to calculate MCC candidate weightage.
- * This score factor will be applied to candidate score if that candidate can
- * form MCC with any SAP interface.
- *
- * Related: None
- *
- * Supported Feature: STA
- *
- * Usage: External
- *
- * </ini>
- */
-#define CFG_STA_SAP_MCC_WEIGHTAGE CFG_INI_UINT( \
-		"sta_sap_mcc_weightage", \
-		0, \
-		100, \
-		20, \
-		CFG_VALUE_OR_DEFAULT, \
-		"STA+SAP MCC candidate weightage")
-
-/*
- * <ini>
  * best_rssi_threshold - Best Rssi for score calculation
  * @Min: 0
  * @Max: 96
- * @Default: 55 *
+ * @Default: 55
+ *
  * This ini tells limit for best RSSI. RSSI better than this limit are
  * considered as best RSSI. The best RSSI is given full rssi_weightage.
  *
@@ -1903,7 +1876,7 @@
 	CFG_VALUE_OR_DEFAULT, \
 	"ML NSS weight per index 4 to 7")
 
-#define CFG_MLO_SCORE_CONFIG \
+#define CFG_MLO_CONFIG \
 	CFG(CFG_SCORING_EHT_CAPS_WEIGHTAGE) \
 	CFG(CFG_SCORING_JOINT_ESP_ALPHA) \
 	CFG(CFG_SCORING_JOINT_OCE_ALPHA) \
@@ -1922,7 +1895,7 @@
 	CFG(CFG_SCORING_MLSR_LINK_SELECTION) \
 	CFG(CFG_SCORING_WLM_INDICATION_WEIGHTAGE)
 #else
-#define CFG_MLO_SCORE_CONFIG
+#define CFG_MLO_CONFIG
 #endif
 
 #define CFG_MLME_SCORE_ALL \
@@ -1940,7 +1913,6 @@
 	CFG(CFG_OCE_AP_TX_PWR_WEIGHTAGE) \
 	CFG(CFG_OCE_SUBNET_ID_WEIGHTAGE) \
 	CFG(CFG_SAE_PK_AP_WEIGHTAGE) \
-	CFG(CFG_STA_SAP_MCC_WEIGHTAGE) \
 	CFG(CFG_SCORING_BEST_RSSI_THRESHOLD) \
 	CFG(CFG_SCORING_GOOD_RSSI_THRESHOLD) \
 	CFG(CFG_SCORING_BAD_RSSI_THRESHOLD) \
@@ -1967,6 +1939,6 @@
 	CFG(CFG_VENDOR_ROAM_SCORE_ALGORITHM) \
 	CFG_6GHZ_CONFIG \
 	CFG_11BE_CONFIG \
-	CFG_MLO_SCORE_CONFIG
+	CFG_MLO_CONFIG
 
 #endif /* __CFG_MLME_SCORE_PARAMS_H */

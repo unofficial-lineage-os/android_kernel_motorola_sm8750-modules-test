@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2016-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2025 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -3802,54 +3802,6 @@ static void dp_peer_set_bw(struct dp_soc *soc, struct dp_txrx_peer *txrx_peer,
 		txrx_peer->mpdu_retry_threshold);
 }
 
-#ifdef WLAN_LOCAL_PKT_CAPTURE_SUBFILTER
-static void
-dp_mon_update_conn_info(struct dp_peer *peer,
-			struct ol_txrx_desc_type *sta_desc)
-{
-	uint32_t mac_id = 0;
-	struct dp_mon_mac *mon_mac;
-	struct dp_pdev *pdev;
-	struct  dp_mon_pdev *mon_pdev;
-
-	if (!peer) {
-		dp_err("peer is NULL");
-		return;
-	}
-
-	pdev = peer->vdev->pdev;
-	mon_mac = dp_get_mon_mac(pdev, mac_id);
-	mon_pdev = pdev->monitor_pdev;
-
-	if (!mon_pdev) {
-		dp_err("mon pdev is NULL");
-		return;
-	}
-
-	mon_mac->beacon_interval = sta_desc->beacon_interval;
-	qdf_mem_copy(mon_pdev->link_info[peer->link_id].self_link_addr.raw,
-		     sta_desc->self_link_addr.bytes,
-		     QDF_MAC_ADDR_SIZE);
-	mon_pdev->link_info[peer->link_id].freq = peer->freq;
-
-	if (IS_MLO_DP_LINK_PEER(peer)) {
-		mon_mac->peer_id = peer->mld_peer->peer_id;
-		mon_pdev->num_links = peer->mld_peer->num_links;
-	} else if (!IS_MLO_DP_LINK_PEER(peer)) {
-		mon_mac->peer_id = peer->peer_id;
-		mon_pdev->num_links = 1;
-	}
-
-	dp_mon_update_nth_beacon(pdev);
-}
-#else
-static void
-dp_mon_update_conn_info(struct dp_peer *peer,
-			struct ol_txrx_desc_type *sta_desc)
-{
-}
-#endif
-
 #ifdef WLAN_FEATURE_11BE_MLO
 QDF_STATUS dp_register_peer(struct cdp_soc_t *soc_hdl, uint8_t pdev_id,
 			    struct ol_txrx_desc_type *sta_desc)
@@ -3865,10 +3817,6 @@ QDF_STATUS dp_register_peer(struct cdp_soc_t *soc_hdl, uint8_t pdev_id,
 
 	qdf_spin_lock_bh(&peer->peer_info_lock);
 	peer->state = OL_TXRX_PEER_STATE_CONN;
-
-	if (peer->vdev->opmode == wlan_op_mode_sta)
-		dp_mon_update_conn_info(peer, sta_desc);
-
 	qdf_spin_unlock_bh(&peer->peer_info_lock);
 
 	dp_peer_set_bw(soc, peer->txrx_peer, sta_desc->bw);
@@ -3943,10 +3891,6 @@ QDF_STATUS dp_register_peer(struct cdp_soc_t *soc_hdl, uint8_t pdev_id,
 
 	qdf_spin_lock_bh(&peer->peer_info_lock);
 	peer->state = OL_TXRX_PEER_STATE_CONN;
-
-	if (peer->vdev->opmode == wlan_op_mode_sta)
-		dp_mon_update_conn_info(peer, sta_desc);
-
 	qdf_spin_unlock_bh(&peer->peer_info_lock);
 
 	dp_peer_set_bw(soc, peer->txrx_peer, sta_desc->bw);
@@ -4419,38 +4363,6 @@ struct dp_peer *dp_sta_vdev_self_peer_ref_n_get(struct dp_soc *soc,
 	qdf_spin_unlock_bh(&vdev->peer_list_lock);
 	return peer;
 }
-
-#ifdef WLAN_FEATURE_11BE_MLO
-struct dp_peer *dp_sta_vdev_link_peer_ref_n_get(struct dp_soc *soc,
-						struct dp_vdev *vdev,
-						enum dp_mod_id mod_id)
-{
-	struct dp_peer *peer;
-
-	if (vdev->opmode != wlan_op_mode_sta)
-		return NULL;
-
-	qdf_spin_lock_bh(&vdev->peer_list_lock);
-	TAILQ_FOREACH(peer, &vdev->peer_list, peer_list_elem) {
-		if (IS_MLO_DP_LINK_PEER(peer) &&
-		    peer->peer_id != HTT_INVALID_PEER)
-			break;
-	}
-
-	if (!peer) {
-		qdf_spin_unlock_bh(&vdev->peer_list_lock);
-		return NULL;
-	}
-
-	if (dp_peer_get_ref(soc, peer, mod_id) == QDF_STATUS_SUCCESS) {
-		qdf_spin_unlock_bh(&vdev->peer_list_lock);
-		return peer;
-	}
-
-	qdf_spin_unlock_bh(&vdev->peer_list_lock);
-	return peer;
-}
-#endif
 
 void dp_peer_flush_frags(struct cdp_soc_t *soc_hdl, uint8_t vdev_id,
 			 uint8_t *peer_mac)

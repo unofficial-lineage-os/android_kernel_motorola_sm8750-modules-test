@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2013-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+ * Copyright (c) 2021-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -1216,7 +1216,7 @@ QDF_STATUS (*send_nan_disable_req_cmd)(wmi_unified_t wmi_handle,
 
 QDF_STATUS (*extract_nan_event_rsp)(wmi_unified_t wmi_handle, void *evt_buf,
 				    struct nan_event_params *evt_params,
-				    uint8_t **msg_buf, uint32_t nan_config);
+				    uint8_t **msg_buf);
 #endif
 
 QDF_STATUS (*send_process_ch_avoid_update_cmd)(wmi_unified_t wmi_handle);
@@ -2204,10 +2204,6 @@ QDF_STATUS (*extract_peer_adv_stats)(wmi_unified_t wmi_handle, void *evt_buf,
 
 QDF_STATUS (*extract_chan_stats)(wmi_unified_t wmi_handle, void *evt_buf,
 			 uint32_t index, wmi_host_chan_stats *chan_stats);
-
-QDF_STATUS (*extract_recv_bcn_stats)(
-			wmi_unified_t wmi_handle, void *evt_buf, uint32_t index,
-			struct wmi_host_recv_bcn_stats *recv_bcn_stats);
 
 #ifdef WLAN_FEATURE_MIB_STATS
 QDF_STATUS (*extract_mib_stats)(wmi_unified_t wmi_handle, void *evt_buf,
@@ -3608,13 +3604,6 @@ QDF_STATUS (*send_opm_stats_cmd)(wmi_unified_t wmi_handle, uint8_t pdev_id);
 QDF_STATUS
 (*send_sta_vdev_report_ap_oper_bw_cmd)(wmi_unified_t wmi_handle,
 				       struct wmi_sta_vdev_report_ap_oper_bw_params *param);
-
-#ifdef FEATURE_WLAN_ZERO_POWER_SCAN
-QDF_STATUS (*send_get_cached_scan_report_cmd)(wmi_unified_t wmi_handle);
-
-void *(*extract_cached_scan_report_ev_params)(wmi_unified_t wmi_handle,
-					      void *ev_data, uint32_t data_len);
-#endif
 };
 
 /* Forward declaration for psoc*/

@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2016-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2025 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -52,11 +52,6 @@
 /* 320MHZ BW 16 20MHZ sub bands */
 #define SUB320BW 16
 
-/* Lengths of various fields in the 802.11 header */
-#define QOS_CTRL_LEN	2
-#define HTC_CTRL_LEN	4
-#define CCMP_PARAM_LEN	8
-
 #define RNG_ERR		"SRNG setup failed for"
 #define dp_mon_info(params...) \
 	__QDF_TRACE_FL(QDF_TRACE_LEVEL_INFO_HIGH, QDF_MODULE_ID_MON, ## params)
@@ -74,8 +69,6 @@
 #else
 #define IS_LOCAL_PKT_CAPTURE_RUNNING(var, field) 0
 #endif
-
-#define INVALID_MON_CHAN_NUM	0xFFFF
 
 extern const struct dp_rx_defrag_cipher dp_f_ccmp;
 
@@ -1110,13 +1103,6 @@ struct dp_ring_ppdu_id_tracker {
 	int32_t status_hw_tp;
 };
 
-#ifdef WLAN_LOCAL_PKT_CAPTURE_SUBFILTER
-struct dp_mon_mac_link_info {
-	union dp_align_mac_addr self_link_addr;
-	uint32_t freq;
-};
-#endif
-
 struct dp_mon_mac {
 	/* mac id */
 	uint8_t mac_id;
@@ -1153,11 +1139,6 @@ struct dp_mon_mac {
 	bool first_mpdu;
 	/* LPC lock */
 	qdf_spinlock_t lpc_lock;
-#ifdef WLAN_LOCAL_PKT_CAPTURE_SUBFILTER
-	uint16_t peer_id;
-	uint16_t beacon_interval;
-	uint16_t nth_beacon;
-#endif
 #endif
 };
 
@@ -1184,9 +1165,6 @@ struct  dp_mon_pdev {
 	uint16_t mo_ctrl_filter;
 	uint16_t mo_data_filter;
 	uint16_t md_data_filter;
-#ifdef WLAN_LOCAL_PKT_CAPTURE_SUBFILTER
-	struct dp_mon_subfilter fp_subfilter;
-#endif
 
 #ifdef WLAN_TX_PKT_CAPTURE_ENH
 	struct dp_pdev_tx_capture tx_capture;
@@ -1356,10 +1334,6 @@ struct  dp_mon_pdev {
 	bool mon_fcs_cap;
 	uint8_t mu_sniffer_enabled;
 	uint8_t mon_version;
-#ifdef WLAN_LOCAL_PKT_CAPTURE_SUBFILTER
-	struct dp_mon_mac_link_info link_info[DP_MAX_MLO_LINKS];
-	uint32_t num_links;
-#endif
 };
 
 struct  dp_mon_vdev {
@@ -5279,9 +5253,6 @@ dp_mon_mode_local_pkt_capture(struct dp_soc *soc)
 	 * as STA+MON mode, LPC otherwise.
 	 */
 	if (wlan_cfg_get_local_pkt_capture(soc->wlan_cfg_ctx) &&
-	    (soc->cdp_soc.ol_ops->get_con_mode &&
-	     soc->cdp_soc.ol_ops->get_con_mode() ==
-	     QDF_GLOBAL_MISSION_MODE) &&
 	    !(soc->mon_flags & QDF_MONITOR_FLAG_OTHER_BSS))
 		return true;
 
@@ -5342,7 +5313,7 @@ dp_mon_pdev_filter_init(struct dp_mon_pdev *mon_pdev)
 		return;
 
 	mon_pdev->mon_filter_mode = MON_FILTER_ALL;
-	mon_pdev->fp_mgmt_filter = FP_MGMT_FILTER;
+	mon_pdev->fp_mgmt_filter = FILTER_MGMT_ALL;
 	mon_pdev->fp_ctrl_filter = FILTER_CTRL_ALL;
 	mon_pdev->fp_data_filter = FILTER_DATA_ALL;
 	mon_pdev->mo_mgmt_filter = FILTER_MGMT_ALL;
@@ -5385,31 +5356,4 @@ dp_convert_enc_to_cdp_enc(struct mon_rx_user_status *rx_user_status,
 QDF_STATUS
 dp_pdev_set_mu_sniffer(struct cdp_soc_t *soc_hdl, uint8_t pdev_id,
 		       uint32_t mode);
-
-#ifdef WLAN_LOCAL_PKT_CAPTURE_SUBFILTER
-
-/*
- * dp_mon_update_nth_beacon() Calculates the value of nth beacon
- * @pdev: Pointer to data path physical device object
- *
- * Return: none
- */
-static inline void
-dp_mon_update_nth_beacon(struct dp_pdev *pdev)
-{
-	struct dp_mon_mac *mon_mac = dp_get_mon_mac(pdev, 0);
-	struct dp_mon_subfilter *filter = &pdev->monitor_pdev->fp_subfilter;
-
-	if (mon_mac->beacon_interval &&
-	    filter->connected_beacon_interval > mon_mac->beacon_interval) {
-		mon_mac->nth_beacon = (filter->connected_beacon_interval /
-				       mon_mac->beacon_interval) - 1;
-	}
-}
-#else
-static inline void
-dp_mon_update_nth_beacon(struct dp_pdev *pdev)
-{
-}
-#endif
 #endif /* _DP_MON_H_ */

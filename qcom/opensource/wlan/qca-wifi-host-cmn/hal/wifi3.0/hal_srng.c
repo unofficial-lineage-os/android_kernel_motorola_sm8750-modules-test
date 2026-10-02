@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2016-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+ * Copyright (c) 2021-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -466,7 +466,6 @@ static void hal_target_based_configure(struct hal_soc *hal)
 	case TARGET_TYPE_QCC2072:
 		hal->use_register_windowing = true;
 		hal_qcc2072_attach(hal);
-		break;
 #endif
 #ifdef INCLUDE_HAL_KIWI
 	case TARGET_TYPE_KIWI:
@@ -1810,6 +1809,10 @@ void *hal_srng_setup_idx(void *hal_soc, int ring_type, int ring_num, int mac_id,
 		srng->hwreg_base[i] = dev_base_addr + ring_config->reg_start[i]
 			+ (ring_num * ring_config->reg_size[i]);
 	}
+
+	/* Zero out the entire ring memory */
+	qdf_mem_zero(srng->ring_base_vaddr, (srng->entry_size *
+		srng->num_entries) << 2);
 
 	srng->flags = ring_params->flags;
 

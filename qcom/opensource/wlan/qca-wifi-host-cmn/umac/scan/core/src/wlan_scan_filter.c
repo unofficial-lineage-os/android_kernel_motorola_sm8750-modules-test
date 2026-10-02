@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2017-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2022-2025 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -293,11 +293,9 @@ static bool scm_check_rsn(struct scan_filter *filter,
 	bool is_adaptive_11r;
 	QDF_STATUS status;
 	struct wlan_crypto_params *ap_crypto;
-	bool match = false;
-	uint8_t *rsn = NULL;
-	uint8_t mrsn_gen = filter->mrsno_gen;
+	bool match;
 
-	if (!util_scan_entry_rsn_by_gen(db_entry, RSN_LEGACY)) {
+	if (!util_scan_entry_rsn(db_entry)) {
 		scm_debug(QDF_MAC_ADDR_FMT" : doesn't have RSN IE",
 			  QDF_MAC_ADDR_REF(db_entry->bssid.bytes));
 		return false;
@@ -306,54 +304,24 @@ static bool scm_check_rsn(struct scan_filter *filter,
 	ap_crypto = qdf_mem_malloc(sizeof(*ap_crypto));
 	if (!ap_crypto)
 		return false;
-
-	if (mrsn_gen < RSN_LEGACY || mrsn_gen > RSNO_GEN_MAX) {
-		scm_debug("Invalid mrsn gen %d", mrsn_gen);
-		mrsn_gen = RSN_LEGACY;
+	status = wlan_crypto_rsnie_check(ap_crypto,
+					 util_scan_entry_rsn(db_entry));
+	if (QDF_IS_STATUS_ERROR(status)) {
+		scm_err(QDF_MAC_ADDR_FMT": failed to parse RSN IE, status %d",
+			QDF_MAC_ADDR_REF(db_entry->bssid.bytes), status);
+		qdf_mem_free(ap_crypto);
+		return false;
 	}
 
-	do {
-		qdf_mem_zero(ap_crypto, sizeof(*ap_crypto));
-		rsn = util_scan_entry_rsn_by_gen(db_entry, mrsn_gen);
-		if (!rsn) {
-			mrsn_gen--;
-			continue;
-		}
+	is_adaptive_11r = db_entry->adaptive_11r_ap &&
+				filter->enable_adaptive_11r;
 
-		status = wlan_crypto_rsnie_check(ap_crypto, rsn);
-		if (QDF_IS_STATUS_ERROR(status)) {
-			scm_err(QDF_MAC_ADDR_FMT ": failed to parse RSN IE gen %d, status %d",
-				QDF_MAC_ADDR_REF(db_entry->bssid.bytes),
-				mrsn_gen, status);
-			match = false;
-			mrsn_gen--;
-			continue;
-		}
+	/* If adaptive 11r is enabled set the FT AKM for AP */
+	if (is_adaptive_11r)
+		scm_check_and_update_adaptive_11r_key_mgmt_support(ap_crypto);
 
-		is_adaptive_11r = db_entry->adaptive_11r_ap &&
-					filter->enable_adaptive_11r;
-
-		/* If adaptive 11r is enabled set the FT AKM for AP */
-		if (is_adaptive_11r)
-			scm_check_and_update_adaptive_11r_key_mgmt_support(ap_crypto);
-
-		match = scm_chk_crypto_params(filter, ap_crypto,
-					      is_adaptive_11r, db_entry,
-					      security);
-		if (!match) {
-			mrsn_gen--;
-			continue;
-		}
-
-		security->rsn_gen_selected = mrsn_gen;
-		if (mrsn_gen > RSN_LEGACY)
-			scm_debug(QDF_MAC_ADDR_FMT " RSN gen selected %d",
-				  QDF_MAC_ADDR_REF(db_entry->bssid.bytes),
-				  security->rsn_gen_selected);
-
-		/* match is true */
-	} while (!match && mrsn_gen >= RSN_LEGACY);
-
+	match = scm_chk_crypto_params(filter, ap_crypto, is_adaptive_11r,
+				      db_entry, security);
 	qdf_mem_free(ap_crypto);
 
 	return match;
@@ -617,8 +585,6 @@ scm_ignore_ssid_check_for_hidden_bss(struct scan_filter *filter,
 
 	is_hidden = util_scan_entry_is_hidden_ap(db_entry);
 	if (is_hidden &&
-	    (!qdf_is_macaddr_zero(&filter->bssid_hint) ||
-	     QDF_HAS_PARAM(filter->key_mgmt, WLAN_CRYPTO_KEY_MGMT_OWE)) &&
 	    util_is_bssid_match(&filter->bssid_hint, &db_entry->bssid))
 		return true;
 
@@ -941,15 +907,6 @@ bool scm_filter_match(struct wlan_objmgr_psoc *psoc,
 	bool match = false;
 	struct scan_default_params *def_param;
 	struct wlan_objmgr_pdev *pdev;
-
-	/* skip connected scan entry and return true for all other */
-	if (filter->flush_all_except_conn_entry) {
-		if (db_entry->mlme_info.assoc_state ==
-				SCAN_ENTRY_CON_STATE_ASSOC)
-			return false;
-		else
-			return true;
-	}
 
 	def_param = wlan_scan_psoc_get_def_params(psoc);
 	if (!def_param)

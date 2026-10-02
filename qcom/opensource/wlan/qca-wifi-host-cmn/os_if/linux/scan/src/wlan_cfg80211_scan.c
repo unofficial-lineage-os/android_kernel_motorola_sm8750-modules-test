@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2017-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+ * Copyright (c) 2021-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -50,7 +50,6 @@
 #include "wlan_mlme_ucfg_api.h"
 #include "wlan_p2p_ucfg_api.h"
 #endif
-#include "wlan_pmo_ucfg_api.h"
 
 #define INVALID_LINK_ID 255
 
@@ -617,6 +616,12 @@ int wlan_cfg80211_sched_scan_start(struct wlan_objmgr_vdev *vdev,
 	req->scan_backoff_multiplier = scan_backoff_multiplier;
 
 	wlan_hdd_sched_scan_update_relative_rssi(req, request);
+
+	//BEGIN MOT a19110 IKSWM-31041 Modify PNO timers
+	req->fast_scan_period = 45000;
+	req->fast_scan_max_cycles = 7;
+	req->slow_scan_period = 480000;
+	//END IKSWM-31041
 
 	psoc = wlan_pdev_get_psoc(pdev);
 	ucfg_scan_register_pno_cb(psoc,
@@ -1303,38 +1308,6 @@ void wlan_scan_runtime_pm_deinit(struct wlan_objmgr_pdev *pdev)
 	qdf_runtime_lock_deinit(&scan_priv->runtime_pm_lock);
 }
 
-#ifdef FEATURE_WLAN_ZERO_POWER_SCAN
-static inline void
-wlan_cfg80211_scan_deinit_cache_scan(struct osif_scan_pdev *scan_priv)
-{
-	if (scan_priv->cache_scan_report) {
-		qdf_mem_free(scan_priv->cache_scan_report->freq_list);
-		qdf_mem_free(scan_priv->cache_scan_report->bss_list);
-		qdf_mem_free(scan_priv->cache_scan_report);
-		scan_priv->cache_scan_report = NULL;
-	}
-	qdf_event_destroy(&scan_priv->cache_scan_report_event);
-	qdf_atomic_init(&scan_priv->cache_scan_report_req_cnt);
-}
-
-static inline void
-wlan_cfg80211_scan_init_cache_scan(struct osif_scan_pdev *scan_priv)
-{
-	qdf_atomic_init(&scan_priv->cache_scan_report_req_cnt);
-	qdf_event_create(&scan_priv->cache_scan_report_event);
-}
-#else
-static inline void
-wlan_cfg80211_scan_deinit_cache_scan(struct osif_scan_pdev *scan_priv)
-{
-}
-
-static inline void
-wlan_cfg80211_scan_init_cache_scan(struct osif_scan_pdev *scan_priv)
-{
-}
-#endif
-
 QDF_STATUS wlan_cfg80211_scan_priv_init(struct wlan_objmgr_pdev *pdev)
 {
 	struct pdev_osif_priv *osif_priv;
@@ -1358,8 +1331,6 @@ QDF_STATUS wlan_cfg80211_scan_priv_init(struct wlan_objmgr_pdev *pdev)
 	qdf_list_create(&scan_priv->scan_req_q, WLAN_MAX_SCAN_COUNT);
 	qdf_mutex_create(&scan_priv->scan_req_q_lock);
 	qdf_wake_lock_create(&scan_priv->scan_wake_lock, "scan_wake_lock");
-	wlan_cfg80211_scan_init_cache_scan(scan_priv);
-	wlan_scan_register_cached_scan_ev_handler(pdev);
 
 	return QDF_STATUS_SUCCESS;
 }
@@ -1375,8 +1346,6 @@ QDF_STATUS wlan_cfg80211_scan_priv_deinit(struct wlan_objmgr_pdev *pdev)
 
 	wlan_cfg80211_cleanup_scan_queue(pdev, NULL);
 	scan_priv = osif_priv->osif_scan;
-	wlan_scan_deregister_cached_scan_ev_handler(pdev);
-	wlan_cfg80211_scan_deinit_cache_scan(scan_priv);
 	qdf_wake_lock_destroy(&scan_priv->scan_wake_lock);
 	qdf_mutex_destroy(&scan_priv->scan_req_q_lock);
 	qdf_list_destroy(&scan_priv->scan_req_q);
@@ -1547,353 +1516,6 @@ wlan_cfg80211_allow_simultaneous_scan(struct wlan_objmgr_psoc *psoc)
 }
 #endif
 
-#ifdef FEATURE_WLAN_ZERO_POWER_SCAN
-#define CLEAR_CACHED_SCAN_REPORT(report) \
-	while ((report)) { \
-		qdf_mem_free((report)->bss_list); \
-		qdf_mem_free((report)->freq_list); \
-		qdf_mem_free((report)); \
-		(report) = NULL; \
-	} \
-
-QDF_STATUS
-wlan_scan_cached_scan_report_ev_handler(struct wlan_objmgr_pdev *pdev,
-					void *data)
-{
-	struct pdev_osif_priv *osif_priv;
-	struct osif_scan_pdev *osif_scan;
-	struct wlan_scan_cache_scan_report *cached_scan_report, *ev_data = data;
-
-	osif_priv = wlan_pdev_get_ospriv(pdev);
-	if (!osif_priv) {
-		osif_debug("Invalid osif priv object");
-		return QDF_STATUS_E_FAILURE;
-	}
-
-	osif_scan = osif_priv->osif_scan;
-	if (!osif_scan) {
-		osif_debug("osif scan priv NULL");
-		return QDF_STATUS_E_FAILURE;
-	}
-
-	cached_scan_report = qdf_mem_malloc(sizeof(*cached_scan_report));
-	if (!cached_scan_report)
-		goto mem_free;
-
-	if (ev_data->num_bss) {
-		cached_scan_report->bss_list =
-			qdf_mem_malloc(sizeof(*cached_scan_report->bss_list) *
-				       ev_data->num_bss);
-		if (!cached_scan_report->bss_list)
-			goto mem_free;
-
-		qdf_mem_copy(cached_scan_report->bss_list, ev_data->bss_list,
-			     sizeof(*cached_scan_report->bss_list) *
-			     ev_data->num_bss);
-		cached_scan_report->num_bss = ev_data->num_bss;
-	}
-
-	if (ev_data->num_freq) {
-		cached_scan_report->freq_list =
-			qdf_mem_malloc(sizeof(*cached_scan_report->freq_list) *
-				       ev_data->num_freq);
-		if (!cached_scan_report->freq_list)
-			goto mem_free;
-
-		qdf_mem_copy(cached_scan_report->freq_list, ev_data->freq_list,
-			     sizeof(*cached_scan_report->freq_list) *
-			     ev_data->num_freq);
-		cached_scan_report->num_freq = ev_data->num_freq;
-	}
-
-	if (qdf_atomic_read(&osif_scan->cache_scan_report_req_cnt)) {
-		cached_scan_report->ts = qdf_get_monotonic_boottime();
-		osif_scan->cache_scan_report = cached_scan_report;
-
-		qdf_event_set_all(&osif_scan->cache_scan_report_event);
-
-		return QDF_STATUS_SUCCESS;
-	}
-
-mem_free:
-	CLEAR_CACHED_SCAN_REPORT(cached_scan_report);
-	return QDF_STATUS_E_NOMEM;
-}
-
-static void
-wlan_cfg80211_fill_cached_scan_bss_flags(struct wlan_scan_cache_bss *bss_info,
-					 uint8_t *bss_flags_bitmap)
-{
-	enum wlan_scan_cache_bss_flags flag;
-
-	if (!bss_info->flags)
-		return;
-
-	flag = WLAN_SCAN_CACHE_BSS_HT_OPS;
-	while (flag < WLAN_SCAN_CACHE_BSS_MAX_CAP) {
-		if (QDF_GET_BITS(bss_info->flags, flag, 1))
-			wlan_cfg80211_set_feature(bss_flags_bitmap, flag);
-		flag++;
-	}
-}
-
-#define NUM_CACHED_SCAN_BSS_ATTR QCA_WLAN_VENDOR_ATTR_FW_SCAN_BSS_MAX
-static QDF_STATUS
-wlan_scan_send_cached_scan_report(struct wiphy *wiphy,
-				  struct wireless_dev *wdev,
-				  struct wlan_objmgr_pdev *pdev,
-				  struct wlan_scan_cache_scan_report *scan_report,
-				  bool is_cached_scan_reported_allowed,
-				  uint64_t curent_ts)
-{
-	uint32_t ev_size, i;
-	struct sk_buff *skb;
-	uint8_t bss_flags_bitmap;
-	struct nlattr *attr, *bss_attr;
-	enum nl80211_chan_width nl_chwidth;
-	struct wlan_scan_cache_bss *bss_info;
-	uint64_t time_delta;
-	uint32_t bss_time_ms;
-
-	ev_size = NLMSG_HDRLEN + sizeof(scan_report->ts) +
-		  ((sizeof(uint32_t) + NLA_HDRLEN) * scan_report->num_freq) +
-		  ((sizeof(*scan_report->bss_list) +
-		    (NUM_CACHED_SCAN_BSS_ATTR * NLA_HDRLEN)) *
-		   scan_report->num_bss);
-
-	skb = wlan_cfg80211_vendor_cmd_alloc_reply_skb(wiphy, ev_size);
-	if (!skb) {
-		osif_debug("SKB alloc failed");
-		return QDF_STATUS_E_NOMEM;
-	}
-
-	if (is_cached_scan_reported_allowed)
-		nla_put_u64_64bit(skb,
-				  QCA_WLAN_VENDOR_ATTR_FW_SCAN_REPORT_TIMESTAMP,
-				  curent_ts, 0);
-	else
-		nla_put_u64_64bit(skb,
-				  QCA_WLAN_VENDOR_ATTR_FW_SCAN_REPORT_TIMESTAMP,
-				  scan_report->ts, 0);
-
-	if (!scan_report->num_freq)
-		goto fill_bss_info;
-
-	attr = nla_nest_start(skb,
-			      QCA_WLAN_VENDOR_ATTR_FW_SCAN_REPORT_FREQ_LIST);
-	if (!attr)
-		goto free_skb;
-
-	for (i = 0; i < scan_report->num_freq; i++)
-		if (nla_put_u32(skb, i, scan_report->freq_list[i]))
-			goto free_skb;
-	nla_nest_end(skb, attr);
-
-fill_bss_info:
-	if (!scan_report->num_bss)
-		goto send_evt;
-
-	attr = nla_nest_start(skb,
-			      QCA_WLAN_VENDOR_ATTR_FW_SCAN_REPORT_BSS_LIST);
-	if (!attr)
-		goto free_skb;
-
-	time_delta = curent_ts - scan_report->ts;
-	for (i = 0; i < scan_report->num_bss; i++) {
-		bss_attr = nla_nest_start(skb, i);
-		if (!bss_attr)
-			goto free_skb;
-
-		bss_info = &scan_report->bss_list[i];
-
-		nl_chwidth =
-			wlan_cfg80211_get_nl80211_chwidth(bss_info->ch_width);
-
-		bss_flags_bitmap = 0x0;
-		wlan_cfg80211_fill_cached_scan_bss_flags(bss_info,
-							 &bss_flags_bitmap);
-
-		if (is_cached_scan_reported_allowed)
-			bss_time_ms = bss_info->age_ms + (time_delta / 1000);
-		else
-			bss_time_ms = bss_info->age_ms;
-
-		if (nla_put_u32(skb, QCA_WLAN_VENDOR_ATTR_FW_SCAN_BSS_MS_AGO,
-				bss_time_ms) ||
-		    nla_put(skb, QCA_WLAN_VENDOR_ATTR_FW_SCAN_BSS_BSSID,
-			    ETH_ALEN, bss_info->bssid.bytes) ||
-		    nla_put(skb, QCA_WLAN_VENDOR_ATTR_FW_SCAN_BSS_SSID,
-			    bss_info->ssid.length, bss_info->ssid.ssid) ||
-		    nla_put_s8(skb, QCA_WLAN_VENDOR_ATTR_FW_SCAN_BSS_RSSI,
-			       bss_info->rssi) ||
-		    nla_put_u16(skb,
-				QCA_WLAN_VENDOR_ATTR_FW_SCAN_BSS_CAPABILITY,
-				bss_info->cap_info) ||
-		    nla_put(skb, QCA_WLAN_VENDOR_ATTR_FW_SCAN_BSS_FLAGS,
-			    sizeof(bss_flags_bitmap), &bss_flags_bitmap) ||
-		    nla_put_u32(skb,
-				QCA_WLAN_VENDOR_ATTR_FW_SCAN_BSS_PRIMARY_FREQ,
-				bss_info->primary_freq) ||
-		    nla_put_u8(skb, QCA_WLAN_VENDOR_ATTR_FW_SCAN_BSS_CHAN_WIDTH,
-			       nl_chwidth) ||
-		    nla_put_u32(skb,
-				QCA_WLAN_VENDOR_ATTR_FW_SCAN_BSS_CENTER_FREQ1,
-				bss_info->ccfs0_mhz) ||
-		    nla_put_u32(skb,
-				QCA_WLAN_VENDOR_ATTR_FW_SCAN_BSS_CENTER_FREQ2,
-				bss_info->ccfs1_mhz))
-			goto free_skb;
-		nla_nest_end(skb, bss_attr);
-		osif_debug("age %d, cap 0x%x, flags 0x%x, rssi %d, freq %d, ccfs0 %d, ccfs1 %d, bw %d, BSSID: " QDF_MAC_ADDR_FMT ", SSID: " QDF_SSID_FMT,
-			   bss_time_ms, bss_info->cap_info, bss_flags_bitmap,
-			   bss_info->rssi, bss_info->primary_freq,
-			   bss_info->ccfs0_mhz, bss_info->ccfs1_mhz,
-			   nl_chwidth, QDF_MAC_ADDR_REF(bss_info->bssid.bytes),
-			   QDF_SSID_REF(bss_info->ssid.length,
-					bss_info->ssid.ssid));
-	}
-	nla_nest_end(skb, attr);
-
-send_evt:
-	return wlan_cfg80211_vendor_cmd_reply(skb);
-
-free_skb:
-	osif_debug("Failed to send event to userspace");
-	wlan_cfg80211_vendor_free_skb(skb);
-
-	return QDF_STATUS_E_FAILURE;
-}
-
-static QDF_STATUS
-wlan_cfg80211_send_scan_request_cached_report(
-				struct wiphy *wiphy,
-				struct wireless_dev *wdev,
-				struct wlan_objmgr_pdev *pdev,
-				struct osif_scan_pdev *osif_scan,
-				bool is_cached_scan_reported_allowed,
-				uint64_t current_ts)
-{
-	QDF_STATUS status;
-
-	if (!is_cached_scan_reported_allowed) {
-		osif_debug("Get scan cache from FW");
-		qdf_wake_lock_acquire(&osif_scan->scan_wake_lock,
-				      WIFI_POWER_EVENT_WAKELOCK_SCAN);
-		qdf_runtime_pm_prevent_suspend(&osif_scan->runtime_pm_lock);
-
-		status = qdf_event_reset(&osif_scan->cache_scan_report_event);
-		if (qdf_atomic_inc_return(
-				&osif_scan->cache_scan_report_req_cnt) == 1) {
-			CLEAR_CACHED_SCAN_REPORT(osif_scan->cache_scan_report);
-
-			status = wlan_scan_request_cached_scan_report(pdev);
-			if (QDF_IS_STATUS_ERROR(status))
-				goto cleanup;
-		}
-
-		status = qdf_wait_for_event_completion(
-					&osif_scan->cache_scan_report_event,
-					SCAN_CACHE_REPORT_TIMEOUT_MS);
-
-		if (QDF_IS_STATUS_ERROR(status))
-			goto cleanup;
-	}
-
-	status = wlan_scan_send_cached_scan_report(
-					wiphy, wdev, pdev,
-					osif_scan->cache_scan_report,
-					is_cached_scan_reported_allowed,
-					current_ts);
-	if (is_cached_scan_reported_allowed)
-		return status;
-
-cleanup:
-	qdf_atomic_dec(&osif_scan->cache_scan_report_req_cnt);
-	qdf_runtime_pm_allow_suspend(&osif_scan->runtime_pm_lock);
-	qdf_wake_lock_release(&osif_scan->scan_wake_lock,
-			      WIFI_POWER_EVENT_WAKELOCK_SCAN);
-	return status;
-}
-
-static bool
-wlan_if_cached_scan_reported_allowed(struct wlan_objmgr_pdev *pdev,
-				     struct osif_scan_pdev *osif_scan,
-				     uint64_t current_ts)
-{
-	struct wlan_objmgr_psoc *psoc;
-	uint64_t scan_cache_report_max_time_in_sec;
-	uint64_t scan_cache_report_max_time_in_usec;
-
-	psoc = wlan_pdev_get_psoc(pdev);
-	if (!psoc) {
-		osif_err("Invalid psoc object");
-		return false;
-	}
-
-	scan_cache_report_max_time_in_sec =
-		ucfg_scan_get_scan_cache_report_max_time_in_sec(psoc);
-
-	scan_cache_report_max_time_in_usec =
-				scan_cache_report_max_time_in_sec *
-				SYSTEM_TIME_SEC_TO_MSEC *
-				SYSTEM_TIME_MSEC_TO_USEC;
-
-	if (ucfg_pmo_tgt_psoc_get_runtime_pm_in_progress(psoc) &&
-	    osif_scan->cache_scan_report &&
-	    (current_ts - osif_scan->cache_scan_report->ts) <
-			scan_cache_report_max_time_in_usec)
-		return true;
-
-	return false;
-}
-
-QDF_STATUS
-wlan_cfg80211_scan_request_cached_scan_report(struct wiphy *wiphy,
-					      struct wireless_dev *wdev,
-					      struct wlan_objmgr_pdev *pdev)
-{
-	QDF_STATUS status;
-	struct pdev_osif_priv *osif_priv;
-	struct osif_scan_pdev *osif_scan;
-	uint64_t current_ts;
-	bool is_cached_scan_reported_allowed = false;
-
-	if (!pdev)
-		return QDF_STATUS_E_NULL_VALUE;
-
-	if (!wlan_scan_get_cached_scan_report_fw_cap(pdev)) {
-		osif_debug("No FW support");
-		return QDF_STATUS_E_NOSUPPORT;
-	}
-
-	osif_priv = wlan_pdev_get_ospriv(pdev);
-	if (!osif_priv) {
-		osif_debug("Invalid osif priv object");
-		return QDF_STATUS_E_NULL_VALUE;
-	}
-
-	status = wlan_objmgr_pdev_try_get_ref(pdev, WLAN_SCAN_ID);
-	if (QDF_IS_STATUS_ERROR(status))
-		return status;
-
-	osif_scan = osif_priv->osif_scan;
-
-	current_ts = qdf_get_monotonic_boottime();
-	is_cached_scan_reported_allowed =
-		wlan_if_cached_scan_reported_allowed(pdev, osif_scan,
-						     current_ts);
-
-	wlan_cfg80211_send_scan_request_cached_report(
-					wiphy, wdev, pdev,
-					osif_scan,
-					is_cached_scan_reported_allowed,
-					current_ts);
-
-	wlan_objmgr_pdev_release_ref(pdev, WLAN_SCAN_ID);
-	return status;
-}
-#endif
-
 enum scan_priority convert_nl_scan_priority_to_internal(
 	enum qca_wlan_vendor_scan_priority nl_scan_priority)
 {
@@ -1996,14 +1618,12 @@ int wlan_cfg80211_scan(struct wlan_objmgr_vdev *vdev,
 	QDF_STATUS qdf_status;
 	enum QDF_OPMODE opmode;
 	uint32_t extra_ie_len = 0;
-	struct scan_filter *filter = NULL;
 
 	psoc = wlan_pdev_get_psoc(pdev);
 	if (!psoc) {
 		osif_err("Invalid psoc object");
 		return -EINVAL;
 	}
-
 	opmode = wlan_vdev_mlme_get_opmode(vdev);
 
 	osif_debug("%s(vdev%d): mode %d flags 0x%x",
@@ -2243,15 +1863,8 @@ int wlan_cfg80211_scan(struct wlan_objmgr_vdev *vdev,
 			req->scan_req.scan_f_en_ie_allowlist_in_probe = true;
 	}
 
-	filter = qdf_mem_malloc(sizeof(*filter));
-	if (filter)
-		filter->flush_all_except_conn_entry = true;
-
 	if (request->flags & NL80211_SCAN_FLAG_FLUSH)
-		ucfg_scan_flush_results(pdev, filter);
-
-	if (filter)
-		qdf_mem_free(filter);
+		ucfg_scan_flush_results(pdev, NULL);
 
 	if (params->scan_probe_unicast_ra)
 		req->scan_req.scan_ctrl_flags_ext |=

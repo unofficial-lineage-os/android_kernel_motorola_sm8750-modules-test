@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2025 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -831,7 +831,7 @@ mlo_ser_set_link_cb(struct wlan_serialization_command *cmd,
 	return status;
 }
 
-#define MLO_SER_CMD_TIMEOUT_MS ((STOP_RESPONSE_TIMER) + 6000)
+#define MLO_SER_CMD_TIMEOUT_MS 5000
 QDF_STATUS mlo_ser_set_link_req(struct mlo_link_set_active_req *req)
 {
 	struct wlan_serialization_command cmd = {0, };

@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2016-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+ * Copyright (c) 2021-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -50,12 +50,8 @@
 
 #define INVALID_WBM_RING_NUM 0xF
 
-#define HOST_PDEV_ID_ALL_MACS -1
-#define HOST_PDEV_ID_1ST_MAC 0
-#define HOST_PDEV_ID_2ND_MAC 1
-
 #ifdef FEATURE_DIRECT_LINK
-#define DIRECT_LINK_REFILL_RING_ENTRIES 640
+#define DIRECT_LINK_REFILL_RING_ENTRIES 128
 #ifdef IPA_OFFLOAD
 #ifdef IPA_WDI3_VLAN_SUPPORT
 #define DIRECT_LINK_REFILL_RING_IDX     4
@@ -83,7 +79,6 @@
  * @peer: DP peer which waits HTT peer unmap
  * @peer_id: Peer ID mapped before
  * @track_start_time: Timestamp that peer unmap tracking start
- * @unmap_track_cookie: peer's cookie under tracking
  */
 struct dp_peer_unmap_track_elem {
 	/* Do not add new entries here */
@@ -91,7 +86,6 @@ struct dp_peer_unmap_track_elem {
 	struct dp_peer *peer;
 	uint16_t peer_id;
 	uint64_t track_start_time;
-	uint32_t unmap_track_cookie;
 };
 
 /**
@@ -138,34 +132,6 @@ void dp_peer_unmap_track_suspend(struct dp_soc *soc);
  * Return: None
  */
 void dp_peer_unmap_track_resume(struct dp_soc *soc);
-
-/**
- * dp_peer_unmap_track_cookie_init() - Initial cookie inside
- *                                     peer for unmap tracking
- * @soc: DP Soc
- * @peer: DP peer handle
- *
- * return: None
- */
-static inline
-void dp_peer_unmap_track_cookie_init(struct dp_soc *soc,
-				     struct dp_peer *peer)
-{
-	peer->unmap_track_cookie =
-			qdf_atomic_inc_return(&soc->peer_unmap_track_cookie);
-}
-
-/**
- * dp_soc_peer_unmap_track_cookie_init - Initial global cookie inside DP soc
- * @soc: DP Soc
- *
- * return: None
- */
-static inline
-void dp_soc_peer_unmap_track_cookie_init(struct dp_soc *soc)
-{
-	qdf_atomic_init(&soc->peer_unmap_track_cookie);
-}
 #else
 static inline
 void dp_peer_unmap_track_update(struct dp_soc *soc, struct dp_peer *peer)
@@ -181,13 +147,6 @@ void dp_peer_unmap_track_suspend(struct dp_soc *soc)
 {}
 static inline
 void dp_peer_unmap_track_resume(struct dp_soc *soc)
-{}
-static inline
-void dp_peer_unmap_track_cookie_init(struct dp_soc *soc,
-				     struct dp_peer *peer)
-{}
-static inline
-void dp_soc_peer_unmap_track_cookie_init(struct dp_soc *soc)
 {}
 #endif
 
@@ -4192,12 +4151,6 @@ static inline bool dp_is_subtype_data(uint16_t frame_ctrl)
 	return false;
 }
 
-#ifdef WLAN_HAPS_ENBALE
-void dp_haps_handle_ind(ol_osif_vdev_handle osif_vdev, haps_state new_state,
-			qdf_ktime_t time_rcvd, bool is_one_shot,
-			bool is_direct_reg_write);
-#endif
-
 #ifdef WDI_EVENT_ENABLE
 /**
  * dp_h2t_cfg_stats_msg_send(): function to construct HTT message to pass to FW
@@ -4438,25 +4391,6 @@ dp_hal_srng_access_end(hal_soc_handle_t soc, hal_ring_handle_t hal_ring_hdl)
 	hal_srng_access_end(soc, hal_ring_hdl);
 }
 #endif
-
-static inline int dp_hal_srng_try_access_start(hal_soc_handle_t hal_soc_hdl,
-					       hal_ring_handle_t hal_ring_hdl,
-					       uint32_t timeout_ns)
-{
-	qdf_ktime_t timeout = qdf_ktime_add_ns(qdf_ktime_get(), timeout_ns);
-	int ret;
-
-	do {
-		ret = hal_srng_try_access_start(hal_soc_hdl, hal_ring_hdl);
-		if (!ret)
-			break;
-	} while (qdf_ktime_compare(qdf_ktime_get(), timeout) < 0);
-
-	if (ret)
-		return -ETIMEDOUT;
-
-	return ret;
-}
 
 #ifdef WLAN_FEATURE_DP_EVENT_HISTORY
 /**

@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2020-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+ * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -32,8 +32,6 @@
 		QDF_TRACE_INFO(QDF_MODULE_ID_DCS, ## args)
 #define dcs_err(args ...) \
 		QDF_TRACE_ERROR(QDF_MODULE_ID_DCS, ## args)
-#define dcs_debug_rl(args ...) \
-		QDF_TRACE_DEBUG_RL(QDF_MODULE_ID_DCS, ## args)
 
 #define WLAN_DCS_MAX_PDEVS 3
 
@@ -118,7 +116,6 @@ struct pdev_dcs_im_stats {
  * @phy_err_threshold: phy error threshold
  * @radar_err_threshold: radar error threshold
  * @coch_intfr_threshold: co-channel interference threshold
- * @dcs_trnsprt_rjt_threshold_cu: transport reject threshold cu
  * @user_max_cu: tx channel utilization due to AP's tx and rx
  * @intfr_detection_threshold: interference detection threshold
  * @intfr_detection_window: interference sampling window
@@ -139,7 +136,6 @@ struct pdev_dcs_params {
 	uint32_t phy_err_threshold;
 	uint32_t radar_err_threshold;
 	uint32_t coch_intfr_threshold;
-	uint32_t dcs_trnsprt_rjt_threshold_cu;
 	uint32_t user_max_cu;
 	uint32_t intfr_detection_threshold;
 	uint32_t intfr_detection_window;
@@ -331,17 +327,6 @@ struct dcs_psoc_priv_obj {
  */
 struct dcs_pdev_priv_obj *
 wlan_dcs_get_pdev_private_obj(struct wlan_objmgr_psoc *psoc, uint32_t pdev_id);
-
-/**
- * dcs_get_trnsprt_switch_rjt_th_cu() - get unused cu threshold
- * @psoc: psoc pointer
- * @pdev_id: pdev_id
- *
- * Return: cu threshold
- */
-uint32_t
-dcs_get_trnsprt_switch_rjt_th_cu(struct wlan_objmgr_psoc *psoc,
-				 uint8_t pdev_id);
 
 /**
  * wlan_dcs_attach() - Attach dcs handler

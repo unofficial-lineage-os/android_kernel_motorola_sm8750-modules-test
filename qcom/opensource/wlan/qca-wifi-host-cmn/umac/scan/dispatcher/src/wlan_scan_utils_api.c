@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2017-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2025 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -163,17 +163,16 @@ bool util_is_rsnxe_h2e_capable(const uint8_t *rsnxe)
 bool util_scan_entry_sae_h2e_capable(struct scan_cache_entry *scan_entry)
 {
 	const uint8_t *rsnxe;
-	uint8_t rsn_sel = scan_entry->neg_sec_info.rsn_gen_selected;
 
 	/* If RSN caps are not there, then return false */
-	if (!util_scan_entry_rsn_by_gen(scan_entry, rsn_sel))
+	if (!util_scan_entry_rsn(scan_entry))
 		return false;
 
 	/* If not SAE AKM no need to check H2E capability */
 	if (!WLAN_CRYPTO_IS_AKM_SAE(scan_entry->neg_sec_info.key_mgmt))
 		return false;
 
-	rsnxe = util_scan_entry_rsnxe_by_gen(scan_entry, rsn_sel);
+	rsnxe = util_scan_entry_rsnxe(scan_entry);
 	return util_is_rsnxe_h2e_capable(rsnxe);
 }
 
@@ -1124,7 +1123,7 @@ util_scan_update_rnr(struct rnr_bss_info *rnr,
 		fallthrough;
 	case TBTT_NEIGHBOR_AP_SHORTSSID:
 		rnr->channel_number = ap_info->channel_number;
-		rnr->operating_class = ap_info->operating_class;
+		rnr->operating_class = ap_info->operting_class;
 		qdf_mem_copy(&rnr->short_ssid, &data[1], SHORT_SSID_LEN);
 		break;
 
@@ -1136,7 +1135,7 @@ util_scan_update_rnr(struct rnr_bss_info *rnr,
 		fallthrough;
 	case TBTT_NEIGHBOR_AP_BSSID:
 		rnr->channel_number = ap_info->channel_number;
-		rnr->operating_class = ap_info->operating_class;
+		rnr->operating_class = ap_info->operting_class;
 		qdf_mem_copy(&rnr->bssid, &data[1], QDF_MAC_ADDR_SIZE);
 		break;
 
@@ -1151,7 +1150,7 @@ util_scan_update_rnr(struct rnr_bss_info *rnr,
 		fallthrough;
 	case TBTT_NEIGHBOR_AP_BSSSID_S_SSID:
 		rnr->channel_number = ap_info->channel_number;
-		rnr->operating_class = ap_info->operating_class;
+		rnr->operating_class = ap_info->operting_class;
 		qdf_mem_copy(&rnr->bssid, &data[1], QDF_MAC_ADDR_SIZE);
 		qdf_mem_copy(&rnr->short_ssid, &data[7], SHORT_SSID_LEN);
 		break;
@@ -1184,7 +1183,7 @@ util_scan_parse_rnr_ie(struct scan_cache_entry *scan_entry,
 		fieldtype = neighbor_ap_info->tbtt_header.tbbt_info_fieldtype;
 		scm_debug("chan %d, opclass %d tbtt_cnt %d, tbtt_len %d, fieldtype %d",
 			  neighbor_ap_info->channel_number,
-			  neighbor_ap_info->operating_class,
+			  neighbor_ap_info->operting_class,
 			  tbtt_count, tbtt_length, fieldtype);
 		data += sizeof(struct neighbor_ap_info_field);
 
@@ -1459,27 +1458,9 @@ util_scan_parse_vendor_ie(struct scan_cache_entry *scan_params,
 						sizeof(struct ie_header);
 	} else if (is_qcn_oui((uint8_t *)ie)) {
 		scan_params->ie_list.qcn = (uint8_t *)ie;
-	} else if (is_vendor_wifi6_rsno_oui((uint8_t *)ie)) {
-		scan_params->ie_list.wifi6_rsno = (uint8_t *)ie;
-	} else if (is_vendor_rsnxo_oui((uint8_t *)ie)) {
-		scan_params->ie_list.rsnxo = (uint8_t *)ie;
-	} else if (is_vendor_wifi7_rsno_oui((uint8_t *)ie)) {
-		scan_params->ie_list.wifi7_rsno = (uint8_t *)ie;
 	}
 
 	return QDF_STATUS_SUCCESS;
-}
-
-static void
-util_scan_override_rsnxo_ie(struct scan_cache_entry *scan_params)
-{
-	if (!util_scan_entry_rsnxo(scan_params))
-		return;
-
-	/* RSNXO IE is valid only if either of RSNO1 or RSNO2 is present */
-	if (!util_scan_entry_wifi6_rsno(scan_params) &&
-	    !util_scan_entry_wifi7_rsno(scan_params))
-		scan_params->ie_list.rsnxo = NULL;
 }
 
 static QDF_STATUS
@@ -1755,8 +1736,6 @@ util_scan_populate_bcn_ie_list(struct wlan_objmgr_pdev *pdev,
 			sizeof(struct ie_header) +
 			ie->ie_len);
 	}
-
-	util_scan_override_rsnxo_ie(scan_params);
 
 	return QDF_STATUS_SUCCESS;
 
@@ -2151,9 +2130,6 @@ static void util_scan_set_security(struct scan_cache_entry *scan_params)
 		scan_params->security_type |= SCAN_SECURITY_TYPE_RSN;
 	if (util_scan_entry_wapi(scan_params))
 		scan_params->security_type |= SCAN_SECURITY_TYPE_WAPI;
-	if (util_scan_entry_wifi6_rsno(scan_params) ||
-	    util_scan_entry_wifi7_rsno(scan_params))
-		scan_params->security_type |= SCAN_SECURITY_TYPE_RSNO;
 
 	if (!scan_params->security_type &&
 	    scan_params->cap_info.wlan_caps.privacy)
@@ -2742,14 +2718,6 @@ util_scan_gen_scan_entry(struct wlan_objmgr_pdev *pdev,
 		return QDF_STATUS_E_FAILURE;
 	}
 
-	if (!IS_WLAN_PHYMODE_EHT(scan_entry->phy_mode) &&
-	    (util_scan_entry_ehtcap(scan_entry) ||
-	     util_scan_entry_bv_ml_ie(scan_entry))) {
-		scm_debug("EHT cap present but phymode %d not EHT, reset eht info",
-			  scan_entry->phy_mode);
-		util_scan_entry_reset_11be_caps(scan_entry);
-	}
-
 	util_scan_update_ml_info(pdev, scan_entry);
 
 	scan_node->entry = scan_entry;
@@ -3028,7 +2996,7 @@ static int util_handle_rnr_ie_for_mbssid(const uint8_t *rnr,
 		tbtt_type = neighbor_ap_info->tbtt_header.tbbt_info_fieldtype;
 		scm_debug("channel number %d, op class %d, bssid_index %d",
 			  neighbor_ap_info->channel_number,
-			  neighbor_ap_info->operating_class, bssid_index);
+			  neighbor_ap_info->operting_class, bssid_index);
 		scm_debug("tbtt_count %d, tbtt_length %d, tbtt_type %d",
 			  tbtt_count, tbtt_len, tbtt_type);
 
@@ -4290,7 +4258,6 @@ bool util_is_bssid_non_tx(struct wlan_objmgr_psoc *psoc,
 	if (!rnr_channel_db)
 		return false;
 
-	qdf_mutex_acquire(&rnr_channel_db->rnr_db_lock);
 	for (i = 0; i < QDF_ARRAY_SIZE(rnr_channel_db->channel); i++) {
 		channel = &rnr_channel_db->channel[i];
 		if (channel->chan_freq != freq)
@@ -4316,20 +4283,8 @@ bool util_is_bssid_non_tx(struct wlan_objmgr_psoc *psoc,
 			cur_node = next_node;
 		}
 	}
-	qdf_mutex_release(&rnr_channel_db->rnr_db_lock);
 
 	return ret;
-}
-
-bool util_is_scan_entry_non_tx_bssid(struct scan_cache_entry *scan_entry)
-{
-	if (scan_entry->mbssid_info.profile_num &&
-	    qdf_mem_cmp(scan_entry->mbssid_info.trans_bssid,
-			scan_entry->mbssid_info.non_trans_bssid,
-			QDF_MAC_ADDR_SIZE))
-		return true;
-
-	return false;
 }
 
 void
@@ -4347,87 +4302,3 @@ util_scan_entry_renew_timestamp(struct wlan_objmgr_pdev *pdev,
 		scan_obj->cb.inform_beacon(pdev, scan_entry);
 }
 
-uint8_t*
-util_scan_entry_rsn_by_gen(struct scan_cache_entry *scan_entry,
-			   uint8_t rsno_gen)
-{
-	if (!scan_entry)
-		return NULL;
-
-	if (rsno_gen == RSN_LEGACY)
-		return util_scan_entry_rsn(scan_entry);
-	if (rsno_gen == RSNO_GEN_WIFI7)
-		return util_scan_entry_wifi7_rsno(scan_entry);
-	if (rsno_gen == RSNO_GEN_WIFI6)
-		return util_scan_entry_wifi6_rsno(scan_entry);
-
-	return NULL;
-}
-
-uint8_t*
-util_scan_entry_rsnxe_by_gen(struct scan_cache_entry *scan_entry,
-			     uint8_t rsno_gen)
-{
-	if (!scan_entry)
-		return NULL;
-
-	if (rsno_gen == RSN_LEGACY)
-		return scan_entry->ie_list.rsnxe;
-
-	return util_scan_entry_rsnxo(scan_entry);
-}
-
-uint8_t
-util_get_rsnxe_len_by_gen(struct scan_cache_entry *scan_entry,
-			  uint8_t rsno_gen)
-{
-	if (!scan_entry)
-		return 0;
-
-	if (rsno_gen == RSN_LEGACY) {
-		if (scan_entry->ie_list.rsnxe)
-			return scan_entry->ie_list.rsnxe[1];
-		return 0;
-	}
-
-	if (util_scan_entry_rsnxo(scan_entry))
-		return scan_entry->ie_list.rsnxo[1] - 4;
-
-	return 0;
-}
-
-	QDF_STATUS
-util_scan_is_valid_rsn_present(struct scan_cache_entry *entry,
-			       struct wlan_crypto_params *params)
-{
-	uint8_t *rsn_ie = NULL;
-	QDF_STATUS status = QDF_STATUS_E_INVAL;
-
-	/*
-	 * Atleast one RSN(O) element must have a valid AKM/cipher.
-	 * Otherwise the beacon is invalid.
-	 */
-
-	rsn_ie = util_scan_entry_rsn(entry);
-	if (rsn_ie) {
-		status = wlan_crypto_rsnie_check(params, rsn_ie);
-		if (QDF_IS_STATUS_SUCCESS(status))
-			return status;
-	}
-
-	rsn_ie = util_scan_entry_wifi6_rsno(entry);
-	if (rsn_ie) {
-		status = wlan_crypto_rsnie_check(params, rsn_ie);
-		if (QDF_IS_STATUS_SUCCESS(status))
-			return status;
-	}
-
-	rsn_ie = util_scan_entry_wifi7_rsno(entry);
-	if (rsn_ie) {
-		status = wlan_crypto_rsnie_check(params, rsn_ie);
-		if (QDF_IS_STATUS_SUCCESS(status))
-			return status;
-	}
-
-	return QDF_STATUS_E_INVAL;
-}

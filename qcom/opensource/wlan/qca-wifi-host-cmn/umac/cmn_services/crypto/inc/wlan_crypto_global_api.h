@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2017-2020 The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2025 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -339,7 +339,7 @@ QDF_STATUS wlan_crypto_wpaie_check(struct wlan_crypto_params *crypto_params,
 /**
  * wlan_crypto_rsnie_check() - called by mlme to check the rsnie
  * @crypto_params: crypto params
- * @frm: rsn buffer beginning from RSN data
+ * @frm: ie buffer
  *
  * This function gets called by mlme to check the contents of rsn is
  * matching with given crypto params
@@ -801,7 +801,7 @@ wlan_get_crypto_params_from_wpa_ie(struct wlan_crypto_params *crypto_params,
 /**
  * wlan_get_crypto_params_from_rsn_ie() - Function to get crypto params
  * from rsn ie
- * @crypto_params: vdev crypto parameters
+ * @crypto_params: return crypto parameters
  * @ie_ptr: pointer to IEs
  * @ie_len: IE length
  *
@@ -815,7 +815,7 @@ wlan_get_crypto_params_from_rsn_ie(struct wlan_crypto_params *crypto_params,
 				   const uint8_t *ie_ptr, uint16_t ie_len);
 
 /**
- * wlan_set_vdev_crypto_params_from_ie() - Sets vdev crypto params from IE info
+ * wlan_set_vdev_crypto_prarams_from_ie() - Sets vdev crypto params from IE info
  * @vdev: vdev pointer
  * @ie_ptr: pointer to IE
  * @ie_len: IE length
@@ -824,9 +824,9 @@ wlan_get_crypto_params_from_rsn_ie(struct wlan_crypto_params *crypto_params,
  *
  * Return: QDF_STATUS_SUCCESS or error code
  */
-QDF_STATUS wlan_set_vdev_crypto_params_from_ie(struct wlan_objmgr_vdev *vdev,
-					       uint8_t *ie_ptr,
-					       uint16_t ie_len);
+QDF_STATUS wlan_set_vdev_crypto_prarams_from_ie(struct wlan_objmgr_vdev *vdev,
+						uint8_t *ie_ptr,
+						uint16_t ie_len);
 #ifdef WLAN_CRYPTO_GCM_OS_DERIVATIVE
 static inline int wlan_crypto_aes_gmac(const uint8_t *key, size_t key_len,
 				       uint8_t *iv, size_t iv_len,
@@ -1279,27 +1279,4 @@ void ucfg_crypto_flush_entries(struct wlan_objmgr_psoc *psoc);
 void ucfg_crypto_free_key_by_link_id(struct wlan_objmgr_psoc *psoc,
 				     struct qdf_mac_addr *link_addr,
 				     uint8_t link_id);
-
-#if defined(WLAN_FEATURE_11BE_MLO) && defined(WLAN_FEATURE_ROAM_OFFLOAD)
-/**
- * wlan_crypto_key_event_handler() - Handle key event and store the keys in
- * crypto PSOC object.
- * @psoc:  Pointer to PSOC object
- * @keys:  Pointer to the keys
- * @num_keys: Number of links for which keys entries are available
- *
- * Return: QDF_STATUS
- */
-QDF_STATUS wlan_crypto_key_event_handler(struct wlan_objmgr_psoc *psoc,
-					 struct wlan_crypto_key_entry *keys,
-					 uint8_t num_keys);
-#else
-static inline
-QDF_STATUS wlan_crypto_key_event_handler(struct wlan_objmgr_psoc *psoc,
-					 struct wlan_crypto_key_entry *keys,
-					 uint8_t num_keys)
-{
-	return QDF_STATUS_E_NOSUPPORT;
-}
-#endif
 #endif /* end of _WLAN_CRYPTO_GLOBAL_API_H_ */

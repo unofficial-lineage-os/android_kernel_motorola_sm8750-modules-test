@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2025 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -34,15 +34,11 @@
 #ifdef QCA_SUPPORT_LITE_MONITOR
 #include "dp_lite_mon.h"
 #endif
-#ifdef WLAN_LOCAL_PKT_CAPTURE_SUBFILTER
-#include <cdp_txrx_mon.h>
-#endif
 
 #define MAX_TX_MONITOR_STUCK 50
 #define ACK_INTERVAL (40)
 #define CTS_INTERVAL (40)
 #define DEFAULT_NOISE_FLOOR (-95)
-#define LPC_TX_HDR_DMA_LENGTH 256
 
 #ifdef TXMON_DEBUG
 /*
@@ -256,7 +252,8 @@ dp_tx_mon_srng_process_2_0(struct dp_soc *soc, struct dp_intr *int_ctx,
 
 		tx_mon_be->stats.status_buf_recv++;
 
-		if (hal_mon_tx_desc.end_reason == HAL_MON_PPDU_TRUNCATED) {
+		if ((hal_mon_tx_desc.end_reason == HAL_MON_FLUSH_DETECTED) ||
+		    (hal_mon_tx_desc.end_reason == HAL_MON_PPDU_TRUNCATED)) {
 			tx_mon_be->be_ppdu_id = hal_mon_tx_desc.ppdu_id;
 
 			dp_tx_mon_update_end_reason(mon_pdev,
@@ -1262,69 +1259,6 @@ dp_tx_mon_lpc_type_filtering(struct dp_pdev *pdev,
 	return QDF_STATUS_SUCCESS;
 }
 
-#ifdef WLAN_LOCAL_PKT_CAPTURE_SUBFILTER
-static void
-dp_tx_mon_disable_pf(qdf_nbuf_t rxbuf)
-{
-	bool is_frag;
-	char *data = NULL;
-	uint8_t *ccmp_info;
-	uint16_t hdr_len;
-	uint16_t pkt_len;
-	qdf_nbuf_t tmp_buf = NULL;
-	tpSirMacFrameCtl fc;
-	void *soc;
-
-	soc = cds_get_context(QDF_MODULE_ID_SOC);
-	if (!cdp_is_local_pkt_capture_running(soc, OL_TXRX_PDEV_ID))
-		return;
-
-	if (qdf_nbuf_get_nr_frags_in_fraglist(rxbuf)) {
-		data = qdf_nbuf_get_frag_addr(rxbuf, 0);
-		pkt_len = qdf_nbuf_get_frag_size(rxbuf, 0);
-		is_frag = true;
-	} else if (qdf_nbuf_has_fraglist(rxbuf)) {
-		tmp_buf = qdf_nbuf_get_ext_list(rxbuf);
-		pkt_len = qdf_nbuf_len(tmp_buf);
-		if (tmp_buf)
-			data = qdf_nbuf_data(tmp_buf);
-	}
-
-	fc = (tpSirMacFrameCtl)data;
-
-	if (fc->wep) {
-		fc->wep = 0;
-		hdr_len = sizeof(tSirMacMgmtHdr);
-
-		/* Add offset of QOS control,
-		 * HTC control field and CCMP params to reach data field
-		 */
-		if (fc->subType == IEEE80211_FC0_TYPE_DATA)
-			hdr_len += QOS_CTRL_LEN;
-		if (fc->order)
-			hdr_len += HTC_CTRL_LEN;
-
-		ccmp_info = data + hdr_len;
-		qdf_mem_copy(data, fc, sizeof(tSirMacFrameCtl));
-
-		hdr_len += CCMP_PARAM_LEN;
-		data += hdr_len;
-		pkt_len -= hdr_len;
-		qdf_mem_copy(ccmp_info, data, pkt_len);
-		if (!is_frag)
-			qdf_nbuf_trim_tail(rxbuf, CCMP_PARAM_LEN);
-		else
-			qdf_nbuf_trim_add_frag_size(rxbuf,
-						    0, -(CCMP_PARAM_LEN), 0);
-	}
-}
-#else
-static void
-dp_tx_mon_disable_pf(qdf_nbuf_t rxbuf)
-{
-}
-#endif
-
 static int
 dp_tx_handle_local_pkt_capture(struct dp_pdev *pdev, qdf_nbuf_t nbuf)
 {
@@ -1335,26 +1269,18 @@ dp_tx_handle_local_pkt_capture(struct dp_pdev *pdev, qdf_nbuf_t nbuf)
 	uint8_t mac_id = 0;
 	struct dp_mon_vdev *mon_vdev;
 	struct dp_mon_mac *mon_mac = dp_get_mon_mac(pdev, mac_id);
-	struct dp_vdev *mvdev;
+	struct dp_vdev *mvdev = mon_mac->mvdev;
 
-	mvdev =	dp_vdev_get_ref_by_id(pdev->soc, mon_mac->vdev_id,
-				      DP_MOD_ID_TX_PPDU_STATS);
-	if (!mvdev || mon_mac->mvdev != mvdev) {
-		dp_mon_err("Monitor vdev is NULL or invalid!!");
-		if (mvdev)
-			dp_vdev_unref_delete(pdev->soc, mvdev,
-					     DP_MOD_ID_TX_PPDU_STATS);
+	if (!mvdev) {
+		dp_mon_err("Monitor vdev is NULL !!");
 		return 1;
 	}
 
 	mon_vdev = mvdev->monitor_vdev;
 
-	if (mon_vdev && mon_vdev->osif_rx_mon) {
-		dp_tx_mon_disable_pf(nbuf);
+	if (mon_vdev && mon_vdev->osif_rx_mon)
 		mon_vdev->osif_rx_mon(mvdev->osif_vdev, nbuf, NULL);
-	}
 
-	dp_vdev_unref_delete(pdev->soc, mvdev, DP_MOD_ID_TX_PPDU_STATS);
 	return 0;
 }
 #else
@@ -1372,49 +1298,6 @@ dp_tx_mon_lpc_type_filtering(struct dp_pdev *pdev,
 	return QDF_STATUS_SUCCESS;
 }
 
-#endif
-
-#ifdef WLAN_LOCAL_PKT_CAPTURE_SUBFILTER
-static bool
-dp_tx_mon_lpc_subfiltering(struct dp_pdev *pdev, qdf_nbuf_t buf)
-{
-	qdf_nbuf_t nbuf;
-	struct ieee80211_frame *dot11hdr;
-	uint8_t type;
-
-	if (dp_tx_mon_nbuf_get_num_frag(buf)) {
-		dot11hdr = (struct ieee80211_frame *)
-			   qdf_nbuf_get_frag_addr(buf, 0);
-	} else {
-		nbuf = qdf_nbuf_get_ext_list(buf);
-		if (nbuf)
-			dot11hdr = (struct ieee80211_frame *)
-				   qdf_nbuf_data(nbuf);
-		else
-			return QDF_STATUS_E_FAILURE;
-	}
-
-	type = (dot11hdr->i_fc[0] & QDF_IEEE80211_FC0_TYPE_MASK);
-	switch (type) {
-	case QDF_IEEE80211_FC0_TYPE_MGT:
-		return dp_mon_is_mgmt_filter_en(pdev, dot11hdr, buf,
-						IEEE80211_FC1_DIR_TODS);
-	case QDF_IEEE80211_FC0_TYPE_CTL:
-		return dp_mon_is_ctrl_filter_en(pdev, dot11hdr,
-						IEEE80211_FC1_DIR_TODS);
-	case QDF_IEEE80211_FC0_TYPE_DATA:
-		return dp_mon_is_data_filter_en(pdev, dot11hdr, buf,
-						IEEE80211_FC1_DIR_TODS);
-	default:
-		return false;
-	}
-}
-#else
-static inline bool
-dp_tx_mon_lpc_subfiltering(struct dp_pdev *pdev, qdf_nbuf_t buf)
-{
-	return true;
-}
 #endif
 
 /**
@@ -1828,101 +1711,6 @@ dp_tx_mon_send_to_stack(struct dp_pdev *pdev, qdf_nbuf_t mpdu,
 }
 
 /**
- * dp_tx_mon_lpc_update_htc_qos() - API to update HT and QoS Control field
- * @rx_user_status: pointer to rx_user_status field of dp_tx_ppdu_info
- * @buf: pointer to skb buffer
- *
- * Return: void
- */
-
-static void
-dp_tx_mon_lpc_update_htc_qos(struct mon_rx_user_status *rx_user_status,
-			     qdf_nbuf_t buf)
-{
-	char *data = NULL;
-
-	if (dp_tx_mon_nbuf_get_num_frag(buf)) {
-		data = qdf_nbuf_get_frag_addr(buf, 0);
-	} else {
-		qdf_nbuf_t nbuf;
-
-		nbuf = qdf_nbuf_get_ext_list(buf);
-		if (nbuf)
-			data = qdf_nbuf_data(nbuf);
-	}
-
-	if (data) {
-		struct ieee80211_frame *dot11hdr;
-		uint8_t subtype;
-		uint8_t hdr_len = 0;
-
-		dot11hdr = (struct ieee80211_frame *)data;
-		subtype = dot11hdr->i_fc[0] & IEEE80211_FC0_SUBTYPE_MASK;
-		hdr_len = sizeof(struct ieee80211_frame);
-
-		if (subtype == QDF_IEEE80211_FC0_SUBTYPE_QOS ||
-		    subtype == QDF_IEEE80211_FC0_SUBTYPE_QOS_NULL) {
-			if (rx_user_status->qos_queue_size) {
-				uint8_t *qos_queue_size =
-					(uint8_t *)(data + hdr_len + 1);
-
-				qdf_mem_copy(qos_queue_size,
-					     &rx_user_status->qos_queue_size,
-					     1);
-			}
-			hdr_len += QOS_CTRL_LEN;
-		}
-
-		if (rx_user_status->ht_control) {
-			if (dot11hdr->i_fc[1] & QDF_IEEE80211_HTC_CTRL_MASK) {
-				uint8_t *htc = NULL;
-
-				htc = (uint8_t *)(data + hdr_len);
-				qdf_mem_copy(htc, &rx_user_status->ht_control,
-					     HTC_CTRL_LEN);
-			}
-		}
-	}
-}
-
-/**
- * dp_tx_mon_remove_mic_data() - API to remove mic placeholder data added by
- * CRYPTO
- * @rx_user_status: pointer to rx_user_status field of dp_tx_ppdu_info
- * @buf: pointer to skb buffer
- *
- * Return: void
- */
-static void
-dp_tx_mon_remove_mic_data(struct mon_rx_user_status *rx_user_status,
-			  qdf_nbuf_t buf)
-{
-	uint8_t mic_len, last_f, num_frags;
-
-	if (qdf_nbuf_len(buf) >= LPC_TX_HDR_DMA_LENGTH)
-		return;
-
-	mic_len = hal_get_rx_status_mic_len(rx_user_status);
-
-	if (mic_len > 0) {
-		num_frags = dp_tx_mon_nbuf_get_num_frag(buf);
-		last_f = num_frags - 1;
-		if (num_frags >= 2) {
-			uint8_t last_frag_size = qdf_nbuf_get_frag_size(buf, last_f);
-
-			if (last_frag_size < mic_len) {
-				qdf_nbuf_remove_frag(buf, last_f,
-						     DP_MON_DATA_BUFFER_SIZE);
-
-				mic_len -= last_frag_size;
-			}
-		}
-		qdf_nbuf_trim_add_frag_size(buf, dp_tx_mon_nbuf_get_num_frag(buf) - 1,
-					    -mic_len, DP_MON_DATA_BUFFER_SIZE);
-	}
-}
-
-/**
  * dp_tx_mon_send_per_usr_mpdu() - API to send per usr mpdu to stack
  * @pdev: pdev Handle
  * @ppdu_info: pointer to dp_tx_ppdu_info
@@ -1985,17 +1773,6 @@ dp_tx_mon_send_per_usr_mpdu(struct dp_pdev *pdev,
 			tx_mon_be->stats.pkt_buf_drop += num_frag;
 			continue;
 		}
-		if (!dp_tx_mon_lpc_subfiltering(pdev, buf)) {
-			qdf_nbuf_free(buf);
-			tx_mon_be->stats.pkt_buf_drop += num_frag;
-			continue;
-		}
-
-		dp_tx_mon_lpc_update_htc_qos(
-			ppdu_info->hal_txmon.rx_status.rx_user_status, buf);
-
-		dp_tx_mon_remove_mic_data(
-			ppdu_info->hal_txmon.rx_status.rx_user_status, buf);
 
 		if (!qdf_nbuf_update_radiotap(&ppdu_info->hal_txmon.rx_status,
 					      buf, qdf_nbuf_headroom(buf))) {

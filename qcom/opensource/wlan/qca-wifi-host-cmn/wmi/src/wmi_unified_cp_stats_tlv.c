@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2016-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+ * Copyright (c) 2021-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -118,8 +118,6 @@ void wmi_extract_ctrl_path_twt_stats_tlv(void *tag_buf,
 	param->rx_mpdu_per_sp = wmi_stats_buf->rx_mpdu_per_sp;
 	param->tx_bytes_per_sp = wmi_stats_buf->tx_bytes_per_sp;
 	param->rx_bytes_per_sp = wmi_stats_buf->rx_bytes_per_sp;
-	param->avg_eosp_sp_dur_us = wmi_stats_buf->avg_eosp_sp_dur_us;
-	param->eosp_sp_count = wmi_stats_buf->eosp_sp_count;
 
 	wmi_debug("dialog_id = %u status = %u", wmi_stats_buf->dialog_id,
 		  wmi_stats_buf->status);
@@ -128,13 +126,10 @@ void wmi_extract_ctrl_path_twt_stats_tlv(void *tag_buf,
 		  wmi_stats_buf->num_sp_cycles, wmi_stats_buf->avg_sp_dur_us,
 		  wmi_stats_buf->min_sp_dur_us, wmi_stats_buf->max_sp_dur_us);
 	wmi_debug("tx_mpdu_per_sp 0x%x, rx_mpdu_per_sp = 0x%x, \
-		  tx_bytes_per_sp = 0x%x, rx_bytes_per_sp = 0x%x, \
-		  avg_eosp_sp_dur_us = 0x%x, eosp_sp_count = 0x%x",
+		  tx_bytes_per_sp = 0x%x, rx_bytes_per_sp = 0x%x",
 		  wmi_stats_buf->tx_mpdu_per_sp, wmi_stats_buf->rx_mpdu_per_sp,
 		  wmi_stats_buf->tx_bytes_per_sp,
-		  wmi_stats_buf->rx_bytes_per_sp,
-		  wmi_stats_buf->avg_eosp_sp_dur_us,
-		  wmi_stats_buf->eosp_sp_count);
+		  wmi_stats_buf->rx_bytes_per_sp);
 }
 
 static void wmi_twt_extract_stats_struct(void *tag_buf,
@@ -614,8 +609,7 @@ prepare_infra_cp_stats_buf(wmi_unified_t wmi_handle,
 	for (index = 0; index < num_vdev_ids; index++)
 		vdev_id_array[index] = stats_req->vdev_id[index];
 
-	for (index = 0; index < num_mac_addr_list &&
-	     index < CTRL_PATH_STATS_MAX_MAC_ADDR; index++) {
+	for (index = 0; index < num_mac_addr_list; index++) {
 		qdf_mem_copy(mac_addr_array, stats_req->peer_mac_addr[index],
 			     QDF_MAC_ADDR_SIZE);
 		mac_addr_array += QDF_MAC_ADDR_SIZE;
@@ -817,7 +811,7 @@ extract_all_stats_counts_tlv(wmi_unified_t wmi_handle, void *evt_buf,
 		return QDF_STATUS_E_FAULT;
 	}
 
-	for (i = 1; i <= WMI_REQUEST_VDEV_RECV_BCN_STAT; i = i << 1) {
+	for (i = 1; i <= WMI_REQUEST_PDEV_TELEMETRY_STAT; i = i << 1) {
 		switch (ev->stats_id & i) {
 		case WMI_REQUEST_PEER_STAT:
 			stats_param->stats_id |= WMI_HOST_REQUEST_PEER_STAT;
@@ -875,10 +869,6 @@ extract_all_stats_counts_tlv(wmi_unified_t wmi_handle, void *evt_buf,
 			stats_param->stats_id |=
 				WMI_HOST_REQUEST_PDEV_TELEMETRY_STAT;
 			break;
-		case WMI_REQUEST_VDEV_RECV_BCN_STAT:
-			stats_param->stats_id |=
-				WMI_HOST_REQUEST_VDEV_RECV_BCN_STAT;
-			break;
 		}
 	}
 
@@ -915,7 +905,6 @@ extract_all_stats_counts_tlv(wmi_unified_t wmi_handle, void *evt_buf,
 	stats_param->num_mib_stats = ev->num_mib_stats;
 	stats_param->num_mib_extd_stats = ev->num_mib_extd_stats;
 	stats_param->num_bcn_stats = ev->num_bcn_stats;
-	stats_param->num_recv_bcn_stats = param_buf->num_recv_bcn_stats;
 	stats_param->pdev_id = wmi_handle->ops->convert_pdev_id_target_to_host(
 							wmi_handle,
 							ev->pdev_id);
