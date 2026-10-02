@@ -210,12 +210,8 @@ int cam_context_buf_done_from_hw(struct cam_context *ctx,
 			ctx->dev_name, ctx->ctx_id);
 		list_del_init(&req->list);
 		cam_smmu_buffer_tracker_putref(&req->buf_tracker);
-		if (req->packet) {
-			cam_common_mem_free(req->packet);
-			req->packet = NULL;
-		}
-		req->ctx = NULL;
 		list_add_tail(&req->list, &ctx->free_req_list);
+		req->ctx = NULL;
 		spin_unlock(&ctx->lock);
 		return -EIO;
 	}
@@ -455,6 +451,7 @@ int32_t cam_context_config_dev_to_hw(
 	uintptr_t packet_addr;
 	struct cam_packet *packet_u;
 	struct cam_packet *packet = NULL;
+	size_t packet_size = 0;
 	size_t remain_len = 0;
 
 	if (!ctx || !cmd) {
@@ -488,11 +485,26 @@ int32_t cam_context_config_dev_to_hw(
 	packet_u = (struct cam_packet *) ((uint8_t *)packet_addr +
 		(uint32_t)cmd->offset);
 	remain_len = len - (uint32_t)cmd->offset;
-
-	rc = cam_packet_util_copy_pkt_to_kmd(packet_u, &packet, remain_len);
-	if (rc) {
-		CAM_ERR(CAM_CTXT, "Copying packet to KMD failed");
+	packet_size = packet_u->header.size;
+	if (packet_size <= remain_len) {
+		rc = cam_common_mem_kdup((void **)&packet,
+			packet_u, packet_size);
+		if (rc) {
+			CAM_ERR(CAM_CTXT, "Alloc and copy request %lld packet fail",
+				packet_u->header.request_id);
+			goto put_ref;
+		}
+	} else {
+		CAM_ERR(CAM_CTXT, "Invalid packet header size %u",
+			packet_size);
+		rc = -EINVAL;
 		goto put_ref;
+	}
+
+	if (cam_packet_util_validate_packet(packet, remain_len)) {
+		CAM_ERR(CAM_CTXT, "Invalid packet params");
+		rc = -EINVAL;
+		goto free_kdup;
 	}
 
 	cfg.packet = packet;
@@ -509,6 +521,7 @@ int32_t cam_context_config_dev_to_hw(
 		rc = -EFAULT;
 	}
 
+free_kdup:
 	cam_common_mem_free(packet);
 	packet = NULL;
 put_ref:
@@ -557,8 +570,6 @@ int32_t cam_context_prepare_dev_to_hw(struct cam_context *ctx,
 	if (req->packet) {
 		CAM_WARN(CAM_CTXT, "[%s][%d] Missing free request local packet",
 			ctx->dev_name, ctx->ctx_id);
-		/* Remove buffer ref counts if any */
-		cam_smmu_buffer_tracker_putref(&req->buf_tracker);
 		cam_common_mem_free(req->packet);
 		req->packet = NULL;
 	}
@@ -1582,7 +1593,7 @@ static int cam_context_stream_dump_validation(struct cam_context *ctx,
 static int cam_context_user_dump(struct cam_context *ctx,
 	struct cam_hw_dump_args *dump_args)
 {
-	int                              rc = 0, i;
+	int                              rc, i;
 	struct cam_ctx_request          *req = NULL, *req_temp;
 	struct cam_context_dump_header  *hdr;
 	uint8_t                         *dst;
@@ -1637,12 +1648,11 @@ static int cam_context_user_dump(struct cam_context *ctx,
 		cam_mem_put_cpu_buf(dump_args->buf_handle);
 		return -ENOSPC;
 	}
-	addr = (uint64_t *)((uint8_t *)addr + sizeof(struct cam_context_stream_dump));
+	addr = addr + sizeof(struct cam_context_stream_dump);
 	hdr->size = hdr->word_size * (addr - start);
 	dump_args->offset += hdr->size +
 		sizeof(struct cam_context_dump_header);
 
-	spin_lock(&ctx->lock);
 	/* Dump waiting requests */
 	if (!list_empty(&ctx->wait_req_list)) {
 		list_for_each_entry_safe(req, req_temp, &ctx->wait_req_list, list) {
@@ -1652,8 +1662,8 @@ static int cam_context_user_dump(struct cam_context *ctx,
 					CAM_WARN(CAM_CTXT,
 						"No sufficient space in dump buffer for headers, remain buf size: %d, header size: %d",
 						remain_len, sizeof(struct cam_context_dump_header));
-					rc = -ENOSPC;
-					goto cleanup;
+					cam_mem_put_cpu_buf(dump_args->buf_handle);
+					return -ENOSPC;
 				}
 
 				dst = (uint8_t *)cpu_addr + dump_args->offset;
@@ -1676,8 +1686,7 @@ static int cam_context_user_dump(struct cam_context *ctx,
 						ctx->dev_name);
 					goto cleanup;
 				}
-				addr = (uint64_t *)((uint8_t *)addr +
-					sizeof(struct cam_context_each_req_info));
+				addr = addr + sizeof(struct cam_context_each_req_info);
 				hdr->size = hdr->word_size * (addr - start);
 				dump_args->offset += hdr->size +
 					sizeof(struct cam_context_dump_header);
@@ -1694,8 +1703,8 @@ static int cam_context_user_dump(struct cam_context *ctx,
 					CAM_WARN(CAM_CTXT,
 						"No sufficient space in dump buffer for headers, remain buf size: %d, header size: %d",
 						remain_len, sizeof(struct cam_context_dump_header));
-					rc = -ENOSPC;
-					goto cleanup;
+					cam_mem_put_cpu_buf(dump_args->buf_handle);
+					return -ENOSPC;
 				}
 
 				dst = (uint8_t *)cpu_addr + dump_args->offset;
@@ -1718,8 +1727,7 @@ static int cam_context_user_dump(struct cam_context *ctx,
 						ctx->dev_name);
 					goto cleanup;
 				}
-				addr = (uint64_t *)((uint8_t *)addr +
-					sizeof(struct cam_context_each_req_info));
+				addr = addr + sizeof(struct cam_context_each_req_info);
 				hdr->size = hdr->word_size * (addr - start);
 				dump_args->offset += hdr->size +
 					sizeof(struct cam_context_dump_header);
@@ -1736,8 +1744,8 @@ static int cam_context_user_dump(struct cam_context *ctx,
 					CAM_WARN(CAM_CTXT,
 						"No sufficient space in dump buffer for headers, remain buf size: %d, header size: %d",
 						remain_len, sizeof(struct cam_context_dump_header));
-					rc = -ENOSPC;
-					goto cleanup;
+					cam_mem_put_cpu_buf(dump_args->buf_handle);
+					return -ENOSPC;
 				}
 
 				dst = (uint8_t *)cpu_addr + dump_args->offset;
@@ -1760,8 +1768,7 @@ static int cam_context_user_dump(struct cam_context *ctx,
 						ctx->dev_name);
 					goto cleanup;
 				}
-				addr = (uint64_t *)((uint8_t *)addr +
-					sizeof(struct cam_context_each_req_info));
+				addr = addr + sizeof(struct cam_context_each_req_info);
 				hdr->size = hdr->word_size * (addr - start);
 				dump_args->offset += hdr->size +
 					sizeof(struct cam_context_dump_header);
@@ -1769,9 +1776,8 @@ static int cam_context_user_dump(struct cam_context *ctx,
 		}
 	}
 cleanup:
-	spin_unlock(&ctx->lock);
 	cam_mem_put_cpu_buf(dump_args->buf_handle);
-	return rc;
+	return 0;
 }
 
 int32_t cam_context_dump_dev_to_hw(struct cam_context *ctx,
@@ -1830,7 +1836,7 @@ size_t cam_context_parse_config_cmd(struct cam_context *ctx, struct cam_config_d
 	uintptr_t packet_addr;
 	int rc = 0;
 	struct cam_packet *packet_u;
-	size_t packet_len = 0;
+	size_t packet_size = 0, packet_len = 0;
 
 	if (!ctx || !cmd || !packet) {
 		CAM_ERR(CAM_CTXT, "invalid args");
@@ -1862,10 +1868,20 @@ size_t cam_context_parse_config_cmd(struct cam_context *ctx, struct cam_config_d
 		goto put_cpu_buf;
 	}
 
+	packet_size = packet_u->header.size;
 	packet_len = len - (size_t)cmd->offset;
-	rc = cam_packet_util_copy_pkt_to_kmd(packet_u, packet, packet_len);
-	if (rc) {
-		CAM_ERR(CAM_CTXT, "Copying packet to KMD failed");
+	if (packet_size <= packet_len) {
+		rc = cam_common_mem_kdup((void **)packet,
+			packet_u, packet_size);
+		if (rc) {
+			CAM_ERR(CAM_ISP, "Alloc and copy request %lld packet fail",
+				packet_u->header.request_id);
+			goto put_cpu_buf;
+		}
+	} else {
+		CAM_ERR(CAM_ISP, "Invalid packet header size %u",
+			packet_size);
+		rc = -EINVAL;
 		goto put_cpu_buf;
 	}
 

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2017-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022-2025 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include "cam_csiphy_dev.h"
@@ -25,24 +25,6 @@ static inline void cam_csiphy_trigger_reg_dump(struct csiphy_device *csiphy_dev)
 	if (csiphy_dev->en_lane_status_reg_dump) {
 		CAM_INFO(CAM_CSIPHY, "Status Reg Dump on failure");
 		cam_csiphy_dump_status_reg(csiphy_dev);
-	}
-}
-
-static void cam_csiphy_clk_dump(struct csiphy_device *csiphy_dev)
-{
-	int i = 0;
-	struct cam_hw_soc_info *soc_info;
-
-	soc_info = &csiphy_dev->soc_info;
-
-	if (csiphy_dev->curr_clk_vote_level >= CAM_MAX_VOTE)
-		return;
-
-	for (i = 0; i < soc_info->num_clk; i++) {
-		CAM_INFO(CAM_CSIPHY, "PHY[%d] Clock Name=%s Clock Rate=%d",
-			soc_info->index,
-			soc_info->clk_name[i],
-			soc_info->clk_rate[csiphy_dev->curr_clk_vote_level][i]);
 	}
 }
 
@@ -218,13 +200,12 @@ static void cam_csiphy_subdev_handle_message(struct v4l2_subdev *sd,
 	switch (message_type) {
 	case CAM_SUBDEV_MESSAGE_REG_DUMP: {
 		cam_csiphy_trigger_reg_dump(csiphy_dev);
-		cam_csiphy_clk_dump(csiphy_dev);
+		cam_soc_util_print_clk_freq(&csiphy_dev->soc_info);
 
 		break;
 	}
 	case CAM_SUBDEV_MESSAGE_APPLY_CSIPHY_AUX: {
 		cam_csiphy_trigger_reg_dump(csiphy_dev);
-		cam_csiphy_clk_dump(csiphy_dev);
 
 		if (!csiphy_dev->skip_aux_settings) {
 			cam_csiphy_update_auxiliary_mask(csiphy_dev);
@@ -508,6 +489,30 @@ static const struct v4l2_subdev_internal_ops csiphy_subdev_intern_ops = {
 	.close = cam_csiphy_subdev_close,
 };
 
+#ifdef CONFIG_CAM_CSI_CONDITIONAL_AUX
+static bool cam_csiphy_aux_setting_allowed(void) {
+	struct device_node *of_chosen;
+	const char* val;
+
+	of_chosen = of_find_node_by_path("/chosen");
+	if (of_chosen == NULL)
+		of_chosen = of_find_node_by_path("/chosen@0");
+
+	if (of_chosen == NULL)
+		return false;
+
+	if (of_property_read_string(of_chosen, "mmi,camera_disable_radio", &val)) {
+		pr_err("%s: Failed to get mmi,camera_disable_radio", __func__);
+		return false;
+	}
+
+	if (!strcmp(val, "false"))
+		return true;
+
+	return false;
+}
+#endif
+
 static int cam_csiphy_component_bind(struct device *dev,
 	struct device *master_dev, void *data)
 {
@@ -534,7 +539,6 @@ static int cam_csiphy_component_bind(struct device *dev,
 	new_csiphy_dev->soc_info.dev_name = pdev->name;
 	new_csiphy_dev->ref_count = 0;
 	new_csiphy_dev->current_data_rate = 0;
-	new_csiphy_dev->curr_clk_vote_level = 0;
 
 	rc = cam_csiphy_parse_dt_info(pdev, new_csiphy_dev);
 	if (rc < 0) {
@@ -554,6 +558,12 @@ static int cam_csiphy_component_bind(struct device *dev,
 
 	if (cam_cpas_query_domain_id_security_support())
 		new_csiphy_dev->domain_id_security = true;
+#ifdef CONFIG_CAM_CSI_CONDITIONAL_AUX
+	new_csiphy_dev->aux_setting_allowed = cam_csiphy_aux_setting_allowed();
+	CAM_INFO(CAM_CSIPHY, "Aux Setting %s be applied for %s",
+		new_csiphy_dev->aux_setting_allowed ? "will" : "won't",
+		pdev->name);
+#endif
 
 	new_csiphy_dev->v4l2_dev_str.internal_ops =
 		&csiphy_subdev_intern_ops;

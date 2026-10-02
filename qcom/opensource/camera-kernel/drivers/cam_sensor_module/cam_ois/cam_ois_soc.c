@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2017-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+ * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include <linux/of.h>
@@ -49,6 +49,24 @@ static int cam_ois_get_dt_data(struct cam_ois_ctrl_t *o_ctrl)
 	}
 
 	CAM_DBG(CAM_SENSOR, "I3C Target: %s", CAM_BOOL_TO_YESNO(o_ctrl->is_i3c_device));
+
+#ifdef CONFIG_MOT_OIS_AF_USE_SAME_IC
+	if (!of_property_read_bool(of_node, "af-ois-use-same-ic")) {
+		o_ctrl->af_ois_use_same_ic = false;
+	} else {
+		o_ctrl->af_ois_use_same_ic = true;
+	}
+	CAM_INFO(CAM_OIS, "af_ois_use_same_ic %d", o_ctrl->af_ois_use_same_ic);
+#endif
+
+#ifdef CONFIG_MOT_DONGWOON_OIS_AF_DRIFT
+	if (!of_property_read_bool(of_node, "af-drift-support")) {
+		o_ctrl->af_drift_supported = false;
+	} else {
+		o_ctrl->af_drift_supported = true;
+	}
+	CAM_WARN(CAM_OIS, "af-drift-support %d", o_ctrl->af_drift_supported);
+#endif
 
 	/* Initialize regulators to default parameters */
 	for (i = 0; i < soc_info->num_rgltr; i++) {
@@ -159,8 +177,6 @@ int cam_ois_driver_soc_init(struct cam_ois_ctrl_t *o_ctrl)
 	INIT_LIST_HEAD(&(o_ctrl->i2c_fw_version_data.list_head));
 	INIT_LIST_HEAD(&(o_ctrl->i2c_mode_data.list_head));
 	INIT_LIST_HEAD(&(o_ctrl->i2c_time_data.list_head));
-	INIT_LIST_HEAD(&(o_ctrl->read_buf_list));
-	mutex_init(&(o_ctrl->read_buf_lock));
 
 	return rc;
 }

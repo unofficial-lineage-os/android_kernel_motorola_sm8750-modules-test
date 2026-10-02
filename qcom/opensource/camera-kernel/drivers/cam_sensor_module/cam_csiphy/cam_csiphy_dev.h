@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * Copyright (c) 2017-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022-2025 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #ifndef _CAM_CSIPHY_DEV_H_
@@ -39,7 +39,7 @@
 #define MAX_DATA_RATE_REGS          30
 
 #define CAMX_CSIPHY_DEV_NAME        "cam-csiphy-driver"
-#define CAM_CSIPHY_RX_CLK_SRC       "cphy_rx_clk_src"
+#define CAM_CSIPHY_RX_CLK_SRC       "cphy_rx_src_clk"
 #define CAM_CSIPHY_TIMER_CLK_SRC    "phytimer_clk_src"
 
 #define CSIPHY_DEFAULT_PARAMS            BIT(0)
@@ -365,13 +365,29 @@ struct csiphy_work_queue {
  *
  * @cdr_tolerance       : cdr tolerance
  * @tolerance_op_type   : if tolerance needs to be added/subtracted
+ * @cdr_config_ptr      : Ptr to the cmd buffer, in which
+ *                        configured CDR values will be
  *                        published
  * @cdr_sweep_enabled   : cdr sweep enabled
  */
 struct cam_csiphy_dev_cdr_sweep_params {
 	uint32_t  cdr_tolerance;
 	uint32_t  tolerance_op_type;
+	uint32_t *cdr_config_ptr;
 	bool      cdr_sweep_enabled;
+};
+
+/**
+ * struct cam_csiphy_dev_aux_setting_params
+ *
+ * @aux_config_ptr      : Ptr to the cmd buffer, in which
+ *                        auxiliary settings that are enabled for different
+ *                        data rates will be published
+ * @aux_mem_update_en   : Set if aux mem buffer provided
+ */
+struct cam_csiphy_dev_aux_setting_params {
+	uint32_t *aux_config_ptr;
+	bool      aux_mem_update_en;
 };
 
 /**
@@ -436,11 +452,11 @@ struct csiphy_qmargin_sweep_data {
  * @csiphy_info                : Sensor specific csiphy info
  * @soc_info                   : SOC information
  * @current_data_rate          : Data rate in mbps
- * @curr_clk_vote_level        : Currently applied clock vote level
  * @csiphy_cpas_cp_reg_mask    : Secure csiphy lane mask
  * @ops                        : KMD operations
  * @crm_cb                     : Callback API pointers
  * @cdr_params                 : CDR sweep params
+ * @aux_params                 : AUX settings buffer params
  * @qmargin_data               : Qmargin params
  * @prgm_cmn_reg_across_csiphy : Flag to decide if com settings need to be programmed for all PHYs
  * @en_common_status_reg_dump  : Debugfs flag to enable common status register dump
@@ -473,12 +489,12 @@ struct csiphy_device {
 					CSIPHY_MAX_INSTANCES_PER_PHY];
 	struct cam_hw_soc_info                   soc_info;
 	uint64_t                                 current_data_rate;
-	enum cam_vote_level                      curr_clk_vote_level;
 	uint64_t                                 csiphy_cpas_cp_reg_mask[
 					CSIPHY_MAX_INSTANCES_PER_PHY];
 	struct cam_req_mgr_kmd_ops               ops;
 	struct cam_req_mgr_crm_cb               *crm_cb;
 	struct cam_csiphy_dev_cdr_sweep_params   cdr_params;
+	struct cam_csiphy_dev_aux_setting_params aux_params;
 	struct csiphy_qmargin_sweep_data         qmargin_data;
 	bool                                     prgm_cmn_reg_across_csiphy;
 	bool                                     en_common_status_reg_dump;
@@ -487,6 +503,9 @@ struct csiphy_device {
 	bool                                     skip_aux_settings;
 	bool                                     domain_id_security;
 	uint16_t                                 preamble_enable;
+#ifdef CONFIG_CAM_CSI_CONDITIONAL_AUX
+	bool                           aux_setting_allowed;
+#endif
 };
 
 /**

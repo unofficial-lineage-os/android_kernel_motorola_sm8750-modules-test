@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * Copyright (c) 2017-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+ * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 #ifndef _CAM_OIS_DEV_H_
 #define _CAM_OIS_DEV_H_
@@ -97,8 +97,6 @@ struct cam_ois_intf_params {
  * @is_ois_calib    :   flag for Calibration data
  * @opcode          :   ois opcode
  * @device_name     :   Device name
- * @read_buf_list   :   ois register read cmd buffer handle list
- * @read_buf_lock   :   ois register read cmd buffer mutex
  *
  */
 struct cam_ois_ctrl_t {
@@ -116,6 +114,12 @@ struct cam_ois_ctrl_t {
 	struct i2c_settings_array i2c_init_data;
 	struct i2c_settings_array i2c_calib_data;
 	struct i2c_settings_array i2c_mode_data;
+#ifdef CONFIG_MOT_OIS_AF_DRIFT
+	struct i2c_settings_array i2c_af_drift_data;
+#endif
+#ifdef CONFIG_MOT_OIS_AFTER_SALES_SERVICE
+	struct i2c_settings_array i2c_gyro_data;
+#endif
 	struct i2c_settings_array i2c_time_data;
 	enum msm_camera_device_type_t ois_device_type;
 	enum cam_ois_state cam_ois_state;
@@ -123,13 +127,22 @@ struct cam_ois_ctrl_t {
 	uint8_t ois_fw_flag;
 	uint8_t is_ois_calib;
 	struct cam_ois_opcode opcode;
+#ifdef CONFIG_MOT_OIS_EARLY_UPGRADE_FW
+	struct mutex ois_early_fw_mutex;
+#endif
+#ifdef CONFIG_MOT_OIS_AF_USE_SAME_IC
+	bool af_ois_use_same_ic;
+#endif
 	struct cam_cmd_ois_fw_info fw_info;
 	struct i2c_settings_array i2c_fw_init_data[MAX_OIS_FW_COUNT];
 	struct i2c_settings_array i2c_fw_finalize_data[MAX_OIS_FW_COUNT];
 	struct i2c_settings_array i2c_fw_version_data;
-	struct list_head read_buf_list;
-	struct mutex read_buf_lock;
+
+#ifdef CONFIG_MOT_DONGWOON_OIS_AF_DRIFT
+        bool af_drift_supported;
+#endif
 };
+
 
 /**
  * @brief : API to register OIS hw to platform framework.

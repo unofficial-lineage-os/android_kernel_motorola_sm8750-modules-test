@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2017-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022-2025, Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2024, Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include <linux/device.h>
@@ -1961,12 +1961,6 @@ int cam_cpas_soc_init_resources(struct cam_hw_soc_info *soc_info,
 			goto release_res;
 	}
 
-	rc = cam_soc_util_get_reset_resource(soc_info);
-	if (rc) {
-		CAM_DBG(CAM_CPAS, "Reset resource get failed rc %d", rc);
-		rc = 0;
-	}
-
 	return rc;
 
 release_res:
@@ -2002,10 +1996,6 @@ int cam_cpas_soc_deinit_resources(struct cam_hw_soc_info *soc_info)
 	rc = cam_soc_util_release_platform_resource(soc_info);
 	if (rc)
 		CAM_ERR(CAM_CPAS, "release platform failed, rc=%d", rc);
-
-	rc = cam_soc_util_put_reset_resource(soc_info);
-	if (rc)
-		CAM_ERR(CAM_CPAS, "release put reset failed, rc=%d", rc);
 
 	CAM_MEM_FREE(soc_private->irq_data);
 	CAM_MEM_FREE(soc_private->llcc_info);
@@ -2215,8 +2205,8 @@ update_bw:
 
 		rc = cam_soc_bus_client_update_bw(bus_client, ab, ib, CAM_SOC_BUS_PATH_DATA_HLOS);
 		if (rc)
-			CAM_ERR(CAM_CPAS, "bus client %s ab %llu ib %llu update bw failed %d",
-				name, ab, ib, rc);
+			CAM_ERR(CAM_CPAS, "bus client %s ab %llu ib %llu update bw failed %d ",
+				name, ab, ib);
 		break;
 
 	default:

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2015-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+ * Copyright (c) 2022-2024, Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include <linux/of.h>
@@ -665,7 +665,6 @@ static int cam_soc_util_set_cesta_clk_rate(struct cam_hw_soc_info *soc_info,
 	int32_t src_clk_idx;
 	struct clk *clk = NULL;
 	int rc = 0;
-	bool is_crmb_sup = false;
 
 	if (!soc_info || (soc_info->src_clk_idx < 0) ||
 		(soc_info->src_clk_idx >= CAM_SOC_MAX_CLK)) {
@@ -683,13 +682,9 @@ static int cam_soc_util_set_cesta_clk_rate(struct cam_hw_soc_info *soc_info,
 	/* Only source clocks are supported by this API to set HW client clock votes */
 	src_clk_idx = soc_info->src_clk_idx;
 	clk = soc_info->clk[src_clk_idx];
-	is_crmb_sup = cam_is_crmb_supported(soc_info);
-
-	CAM_DBG(CAM_UTIL, "%s Requested clk [hi lo]:[%llu %llu] cesta_client_idx:%d is_crmb_sup:%d",
-		soc_info->clk_name[src_clk_idx], high_val, low_val, cesta_client_idx, is_crmb_sup);
 
 	if (!skip_mmrm_set_rate && soc_info->mmrm_handle) {
-		if (!is_crmb_sup) {
+		if (!cam_is_crmb_supported(soc_info)) {
 			CAM_DBG(CAM_UTIL,
 				"cesta mmrm hw client: set %s, high-rate %lld low-rate %lld",
 				soc_info->clk_name[src_clk_idx], high_val, low_val);
@@ -711,7 +706,10 @@ static int cam_soc_util_set_cesta_clk_rate(struct cam_hw_soc_info *soc_info,
 		}
 	}
 
-	if (is_crmb_sup) {
+	CAM_DBG(CAM_UTIL, "%s Requested clk rate [high low]: [%llu %llu] cesta_client_idx: %d",
+		soc_info->clk_name[src_clk_idx], high_val, low_val, cesta_client_idx);
+
+	if (cam_is_crmb_supported(soc_info)) {
 
 		/* For CRMB, we pass 0 for nd_idx as we only need a single node for CESTA */
 
@@ -1801,7 +1799,7 @@ static int cam_soc_util_set_clk_rate(struct cam_hw_soc_info *soc_info,
 		}
 	}
 
-	if (applied_clk_rate && (clk_rate_round >= 0))
+	if (applied_clk_rate)
 		*applied_clk_rate = clk_rate_round;
 
 	return rc;
@@ -2097,87 +2095,6 @@ error:
 	return rc;
 }
 
-int cam_soc_util_get_reset_resource(struct cam_hw_soc_info *soc_info)
-{
-	struct device_node *of_node = NULL;
-	int count;
-	int i, j, rc = 0;
-
-	if (!soc_info || !soc_info->dev) {
-		CAM_ERR(CAM_UTIL, "Invalid params");
-		return -EINVAL;
-	}
-
-	of_node = soc_info->dev->of_node;
-
-	count = of_property_count_strings(of_node, "reset-names");
-
-	CAM_DBG(CAM_UTIL, "E: dev_name = %s count = %d",
-		soc_info->dev_name, count);
-	if (count > CAM_SOC_MAX_RESET) {
-		CAM_ERR(CAM_UTIL, "invalid count of reset, count=%d", count);
-		rc = -EINVAL;
-		return rc;
-	}
-	if (count <= 0) {
-		CAM_DBG(CAM_UTIL, "No reset found");
-		count = 0;
-		soc_info->num_reset = count;
-		return 0;
-	}
-	soc_info->num_reset = count;
-
-	for (i = 0; i < count; i++) {
-		rc = of_property_read_string_index(of_node, "reset-names",
-				i, &(soc_info->reset_name[i]));
-		CAM_DBG(CAM_UTIL, "reset-names[%d] = %s",
-			i, soc_info->reset_name[i]);
-		if (rc) {
-			CAM_ERR(CAM_UTIL,
-				"i= %d count= %d reading reset-names failed",
-				i, count);
-			return rc;
-		}
-
-		soc_info->resets[i] = devm_reset_control_get(soc_info->dev,
-				soc_info->reset_name[i]);
-		if (IS_ERR(soc_info->resets[i])) {
-			rc = PTR_ERR(soc_info->resets[i]);
-			CAM_ERR(CAM_UTIL,
-				"i= %d count= %d reset= %s control get failed: %d",
-				i, count, soc_info->reset_name[i], rc);
-			goto err;
-		}
-	}
-
-	return 0;
-
-err:
-	for (j = i-1; j >= 0; j--) {
-		soc_info->resets[j] = NULL;
-	}
-	soc_info->num_reset = 0;
-
-	return rc;
-}
-
-int cam_soc_util_put_reset_resource(struct cam_hw_soc_info *soc_info)
-{
-	int i;
-
-	if (soc_info->num_reset <= 0) {
-		CAM_ERR(CAM_UTIL, "Invalid params reset %d");
-		return -EINVAL;
-	}
-
-	for (i = 0; i < soc_info->num_reset; i++) {
-		soc_info->resets[i] = NULL;
-	}
-	soc_info->num_reset = 0;
-
-	return 0;
-}
-
 int cam_soc_util_clk_enable(struct cam_hw_soc_info *soc_info, int cesta_client_idx,
 	bool optional_clk, int32_t clk_idx, int32_t apply_level)
 {
@@ -2349,10 +2266,6 @@ int cam_soc_util_clk_enable_default(struct cam_hw_soc_info *soc_info,
 {
 	int                          i, rc = 0;
 	enum cam_vote_level          apply_level;
-	uint32_t clk_level_override_high = 0;
-	unsigned long clk_rate_high = 0;
-	int32_t src_clk_idx;
-	int32_t temp_apply_level;
 
 	if (debug_bypass_drivers & CAM_BYPASS_CLKS) {
 		CAM_WARN(CAM_UTIL, "Bypass clk enable default");
@@ -2364,29 +2277,6 @@ int cam_soc_util_clk_enable_default(struct cam_hw_soc_info *soc_info,
 		CAM_ERR(CAM_UTIL, "Invalid number of clock %d",
 			soc_info->num_clk);
 		return -EINVAL;
-	}
-
-	src_clk_idx = soc_info->src_clk_idx;
-	clk_level_override_high = soc_info->clk_level_override_high;
-
-	if ((soc_info->src_clk_idx >= 0) && (soc_info->src_clk_idx < CAM_SOC_MAX_CLK) &&
-		clk_level_override_high) {
-		clk_rate_high = soc_info->clk_rate[clk_level_override_high][src_clk_idx];
-
-		CAM_DBG(CAM_UTIL, "src_clk_idx: %d, override_high: %d, clk_rate_high: %lld",
-			src_clk_idx, clk_level_override_high, clk_rate_high);
-
-		rc = cam_soc_util_get_clk_level(soc_info, clk_rate_high, src_clk_idx,
-			&temp_apply_level);
-		if (rc || (temp_apply_level < 0) || (temp_apply_level >= CAM_MAX_VOTE)) {
-			CAM_ERR(CAM_UTIL,
-				"set %s, rate %lld dev_name = %s apply level = %d",
-				soc_info->clk_name[src_clk_idx], clk_rate_high,
-				soc_info->dev_name, temp_apply_level);
-		}
-
-		if (temp_apply_level > clk_level)
-			clk_level = temp_apply_level;
 	}
 
 	rc = cam_soc_util_get_clk_level_to_apply(soc_info, clk_level,
@@ -3327,15 +3217,6 @@ int cam_soc_util_regulator_disable(struct regulator *rgltr,
 		return -EINVAL;
 	}
 
-	rc = cam_wrapper_regulator_is_enabled(rgltr, rgltr_name);
-	if (rc < 0) {
-		CAM_ERR(CAM_UTIL, "%s regulator_is_enabled failed", rgltr_name);
-		return rc;
-	} else if (rc == 0) {
-		CAM_DBG(CAM_UTIL, "%s regulator already disabled", rgltr_name);
-		return rc;
-	}
-
 	rc = cam_wrapper_regulator_disable(rgltr, rgltr_name);
 	if (rc) {
 		CAM_ERR(CAM_UTIL, "%s regulator disable failed", rgltr_name);
@@ -3583,49 +3464,6 @@ static void cam_soc_util_regulator_disable_default(
 					soc_info->rgltr_name[j]);
 		}
 	}
-}
-
-int cam_soc_util_reset_control(
-	struct cam_hw_soc_info *soc_info)
-{
-	int rc = 0;
-	uint32_t num_reset = soc_info->num_reset;
-
-	if (num_reset <= 0)
-		return 0;
-
-	if (num_reset > CAM_SOC_MAX_RESET) {
-		CAM_ERR(CAM_UTIL,
-			"%s has invalid reset resource number %d",
-			soc_info->dev_name, num_reset);
-		return -EINVAL;
-	}
-
-	/* pscbc reset */
-	reset_control_assert(soc_info->resets[0]);
-	reset_control_assert(soc_info->resets[1]);
-	reset_control_assert(soc_info->resets[2]);
-	reset_control_assert(soc_info->resets[3]);
-	usleep_range(1, 2);
-	reset_control_deassert(soc_info->resets[0]);
-	reset_control_deassert(soc_info->resets[1]);
-
-	/* sw mode sleep stg mode. STG done for SF */
-	reset_control_assert(soc_info->resets[4]);
-	reset_control_assert(soc_info->resets[5]);
-	usleep_range(1, 2);
-	reset_control_deassert(soc_info->resets[1]);
-	reset_control_deassert(soc_info->resets[5]);
-	reset_control_deassert(soc_info->resets[4]);
-
-	/* sw mode sleep stg mode. STG done for HF */
-	reset_control_assert(soc_info->resets[6]);
-	reset_control_assert(soc_info->resets[7]);
-	usleep_range(1, 2);
-	reset_control_deassert(soc_info->resets[0]);
-	reset_control_deassert(soc_info->resets[7]);
-	reset_control_deassert(soc_info->resets[6]);
-	return rc;
 }
 
 static int cam_soc_util_regulator_enable_default(
@@ -4142,12 +3980,6 @@ int cam_soc_util_enable_platform_resource(struct cam_hw_soc_info *soc_info,
 			return rc;
 		}
 
-		rc = cam_soc_util_reset_control(soc_info);
-		if (rc) {
-			CAM_ERR(CAM_UTIL, "resource control assert/de-assert failed");
-			goto disable_regulator;
-		}
-
 		if (enable_clocks) {
 			rc = cam_soc_util_clk_enable_default(soc_info, cesta_client_idx, clk_level);
 			if (rc)
@@ -4503,8 +4335,7 @@ static int cam_soc_util_dump_dmi_ctxt_reg_range_user_buf(
 		goto end;
 	}
 	remain_len = buf_len - dump_args->offset;
-	min_len =  sizeof(struct cam_hw_soc_dump_header) +
-		(reg_read->num_pre_writes * 2 * sizeof(uint32_t)) +
+	min_len = (reg_read->num_pre_writes * 2 * sizeof(uint32_t)) +
 		(reg_read->dmi_data_read.num_values * 2 * sizeof(uint32_t)) +
 		sizeof(uint32_t);
 	if (remain_len < min_len) {
@@ -4612,8 +4443,8 @@ static int cam_soc_util_dump_cont_reg_range_user_buf(
 	int                            rc = 0;
 	size_t                         buf_len;
 	uint8_t                       *dst;
-	size_t                         remain_len, min_len;
-	uint32_t                       reg_map_size = 0;
+	size_t                         remain_len;
+	uint32_t                       min_len, reg_map_size = 0;
 	uint32_t                      *waddr, *start;
 	uintptr_t                      cpu_addr;
 	struct cam_hw_soc_dump_header  *hdr;
@@ -4623,14 +4454,6 @@ static int cam_soc_util_dump_cont_reg_range_user_buf(
 			"Invalid input args soc_info: %pK, dump_out_buffer: %pK reg_read: %pK",
 			soc_info, dump_args, reg_read);
 		return -EINVAL;
-	}
-
-	/* Validate num_values to prevent overflow */
-	if (reg_read->num_values >
-		((SIZE_MAX - sizeof(struct cam_hw_soc_dump_header) - sizeof(uint32_t)) /
-		(2 * sizeof(uint32_t)))) {
-		CAM_ERR(CAM_UTIL, "num_values too large: %u", reg_read->num_values);
-		return -EOVERFLOW;
 	}
 
 	rc = cam_mem_get_cpu_buf(dump_args->buf_handle, &cpu_addr, &buf_len);

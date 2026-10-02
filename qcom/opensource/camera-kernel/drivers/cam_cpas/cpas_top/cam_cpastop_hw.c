@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2017-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022-2025, Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2024, Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include <linux/delay.h>
@@ -38,7 +38,6 @@
 #include "cpastop_v640_200.h"
 #include "cpastop_v880_100.h"
 #include "cpastop_v975_100.h"
-#include "cpastop_v970_110.h"
 #include "cpastop_v980_100.h"
 #include "cpastop_v1080_100.h"
 #include "cam_req_mgr_workq.h"
@@ -196,6 +195,15 @@ static const uint32_t cam_cpas_hw_version_map
 		0,
 		0,
 	},
+	/* for camera_975 */
+	{
+		CAM_CPAS_TITAN_975_V100,
+		0,
+		0,
+		0,
+		0,
+		0,
+	},
 	/* for camera_980 */
 	{
 		CAM_CPAS_TITAN_980_V100,
@@ -210,24 +218,6 @@ static const uint32_t cam_cpas_hw_version_map
 		CAM_CPAS_TITAN_1080_V100,
 		0,
 		0,
-		0,
-		0,
-		0,
-	},
-	/* for camera_975 */
-	{
-		CAM_CPAS_TITAN_975_V100,
-		0,
-		0,
-		0,
-		0,
-		0,
-	},
-	/* for camera_970 */
-	{
-		0,
-		0,
-		CAM_CPAS_TITAN_970_V110,
 		0,
 		0,
 		0,
@@ -312,9 +302,6 @@ static int cam_cpas_translate_camera_cpas_version_id(
 		break;
 	case CAM_CPAS_CAMERA_VERSION_975:
 		*cam_version_id = CAM_CPAS_CAMERA_VERSION_ID_975;
-		break;
-	case CAM_CPAS_CAMERA_VERSION_970:
-		*cam_version_id = CAM_CPAS_CAMERA_VERSION_ID_970;
 		break;
 	case CAM_CPAS_CAMERA_VERSION_980:
 		*cam_version_id = CAM_CPAS_CAMERA_VERSION_ID_980;
@@ -1497,26 +1484,6 @@ static int cam_cpastop_set_tpg_mux_sel(struct cam_hw_info *cpas_hw,
 	return 0;
 }
 
-static int cam_cpastop_handle_reset_res_control(struct cam_hw_info *cpas_hw)
-{
-	struct cam_hw_soc_info *soc_info = &cpas_hw->soc_info;
-	int rc = 0;
-
-	switch (soc_info->hw_version) {
-	case CAM_CPAS_TITAN_970_V110:
-		rc = cam_soc_util_reset_control(soc_info);
-		if (rc) {
-			CAM_ERR(CAM_UTIL, "resource control assert/de-assert failed");
-			return rc;
-		}
-		break;
-	default:
-		break;
-	}
-
-	return 0;
-}
-
 static int cam_cpastop_init_hw_version(struct cam_hw_info *cpas_hw,
 	struct cam_cpas_hw_caps *hw_caps)
 {
@@ -1632,11 +1599,6 @@ static int cam_cpastop_init_hw_version(struct cam_hw_info *cpas_hw,
 		cpas_info = &cam975_cpas100_cpas_info;
 		cesta_info = &cam_v975_cesta_info;
 		break;
-	case CAM_CPAS_TITAN_970_V110:
-		alloc_camnoc_info[CAM_CAMNOC_HW_RT] = &cam970_cpas110_camnoc_info_rt;
-		alloc_camnoc_info[CAM_CAMNOC_HW_NRT] = &cam970_cpas110_camnoc_info_nrt;
-		cpas_info = &cam970_cpas110_cpas_info;
-		break;
 	case CAM_CPAS_TITAN_980_V100:
 		alloc_camnoc_info[CAM_CAMNOC_HW_RT] = &cam980_cpas100_camnoc_info_rt;
 		alloc_camnoc_info[CAM_CAMNOC_HW_NRT] = &cam980_cpas100_camnoc_info_nrt;
@@ -1734,7 +1696,6 @@ int cam_cpastop_get_internal_ops(struct cam_cpas_internal_ops *internal_ops)
 		cam_cpastop_print_poweron_settings;
 	internal_ops->qchannel_handshake = cam_cpastop_qchannel_handshake;
 	internal_ops->set_tpg_mux_sel = cam_cpastop_set_tpg_mux_sel;
-	internal_ops->handle_reset_res_control = cam_cpastop_handle_reset_res_control;
 
 	return 0;
 }

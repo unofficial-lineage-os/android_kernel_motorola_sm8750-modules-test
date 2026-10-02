@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * Copyright (c) 2017-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022-2025 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #ifndef _CAM_HW_MGR_INTF_H_
@@ -50,17 +50,6 @@ enum cam_faulted_mem_type {
 	CAM_FAULT_BUF_NOT_FOUND,
 	CAM_FAULT_IO_CFG_BUF,
 	CAM_FAULT_PATCH_BUF
-};
-
-/**
- * enum cam_pf_pid_found_status -
- *    Status of PID found for a hardware node
- *
- */
-enum cam_pf_pid_found_status {
-	CAM_PF_PID_FOUND_PENDING,
-	CAM_PF_PID_FOUND_FAILURE,
-	CAM_PF_PID_FOUND_SUCCESS
 };
 
 #define CAM_CTX_EVT_ID_SUCCESS 0
@@ -286,7 +275,6 @@ struct cam_hw_mgr_pf_request_info {
  * @priv:                  Private pointer of hw update
  * @buf_tracker:           Ptr to list of buffers we want to keep ref counts on
  * @pf_data:               Debug data for page fault
- * @init_pending_req_cnt:  Count of the init pending reqs received before stream on
  *
  */
 struct cam_hw_prepare_update_args {
@@ -308,7 +296,6 @@ struct cam_hw_prepare_update_args {
 	void                           *priv;
 	struct list_head                   *buf_tracker;
 	struct cam_hw_mgr_pf_request_info  *pf_data;
-	uint32_t                            init_pending_req_cnt;
 };
 
 /**
@@ -425,14 +412,14 @@ struct cam_context_pf_info {
  * @handle_sec_pf:         Indicates if this PF args comes from HW level
  * @check_pid:             Indicates if simply checking error client by pid without dumping ctx
  *                         or active requests
- * @pf_pid_found_status:   Indicates if client with the same pid is found for the PF issue
+ * @pid_found:             Indicates if client with the same pid is found for the PF issue
  */
 struct cam_hw_dump_pf_args {
-	struct cam_smmu_pf_info     *pf_smmu_info;
-	struct cam_context_pf_info   pf_context_info;
-	bool                         handle_sec_pf;
-	bool                         check_pid;
-	enum cam_pf_pid_found_status pf_pid_found_status;
+	struct cam_smmu_pf_info    *pf_smmu_info;
+	struct cam_context_pf_info  pf_context_info;
+	bool                        handle_sec_pf;
+	bool                        check_pid;
+	bool                        pid_found;
 };
 
 /**

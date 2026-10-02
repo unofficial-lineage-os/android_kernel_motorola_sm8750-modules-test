@@ -984,9 +984,10 @@ static int cam_sync_dma_fence_cb(
 	int32_t sync_obj,
 	struct cam_dma_fence_signal_sync_obj *signal_sync_obj)
 {
-	int32_t                rc, status = CAM_SYNC_STATE_SIGNALED_SUCCESS;
-	struct sync_table_row *row;
-	struct list_head       parents_list;
+	int32_t rc;
+	int32_t status = CAM_SYNC_STATE_SIGNALED_SUCCESS;
+	struct sync_table_row *row = NULL;
+	struct list_head parents_list;
 
 	if (!signal_sync_obj) {
 		CAM_ERR(CAM_SYNC, "Invalid signal info args");
@@ -1065,9 +1066,9 @@ end:
 static int cam_sync_synx_obj_cb(int32_t sync_obj,
 	struct cam_synx_obj_signal_sync_obj *signal_sync_obj)
 {
-	int32_t                rc;
-	struct sync_table_row *row;
-	struct list_head       parents_list;
+	int32_t rc;
+	struct sync_table_row *row = NULL;
+	struct list_head parents_list;
 
 	if (!signal_sync_obj) {
 		CAM_ERR(CAM_SYNC, "Invalid signal info args");
@@ -1711,8 +1712,8 @@ static int cam_generic_fence_handle_synx_release(
 static int cam_sync_synx_associate_obj(int32_t sync_obj, uint32_t synx_obj,
 	int32_t synx_obj_row_idx, bool *is_sync_obj_signaled)
 {
-	int                        rc;
-	struct sync_table_row     *row;
+	int rc;
+	struct sync_table_row *row = NULL;
 	struct cam_synx_obj_signal signal_synx_obj;
 
 	rc = cam_sync_check_valid(sync_obj);
@@ -2007,6 +2008,13 @@ static int cam_generic_fence_handle_sync_create(
 					release_params.u.dma_row_idx = dma_fence_row_idx;
 
 					cam_dma_fence_release(&release_params);
+				}
+				/* Release synx obj */
+				if (synx_obj_created) {
+					synx_release_params.use_row_idx = true;
+					synx_release_params.u.synx_row_idx = synx_obj_row_idx;
+
+					cam_synx_obj_release(&synx_release_params);
 				}
 				goto out_copy;
 			}
@@ -2382,22 +2390,21 @@ static long cam_sync_dev_ioctl(struct file *filep, void *fh,
 	return rc;
 }
 
-static __poll_t cam_sync_poll(struct file *f,
+static unsigned int cam_sync_poll(struct file *f,
 	struct poll_table_struct *pll_table)
 {
-	__poll_t        masks = 0;
+	int rc = 0;
 	struct v4l2_fh *eventq = f->private_data;
 
-	if (!eventq) {
-		CAM_ERR(CAM_SYNC, "v4l2_fh_poll with unexpected input eventq");
-		return masks;
-	}
+	if (!eventq)
+		return -EINVAL;
 
 	poll_wait(f, &eventq->wait, pll_table);
-	if (v4l2_event_pending(eventq))
-		masks |= POLLPRI;
 
-	return masks;
+	if (v4l2_event_pending(eventq))
+		rc = POLLPRI;
+
+	return rc;
 }
 
 static int cam_sync_open(struct file *filep)

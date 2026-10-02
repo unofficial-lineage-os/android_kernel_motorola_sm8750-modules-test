@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2019-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+ * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include <linux/slab.h>
@@ -1790,20 +1790,6 @@ void cam_tfe_cam_cdm_callback(uint32_t handle, void *userdata,
 			rc = cam_packet_util_get_cmd_mem_addr(
 				ctx->last_submit_bl_cmd.cmd[i].mem_handle,
 				&buf_addr, &len);
-			if (rc) {
-				CAM_ERR_RATE_LIMIT(CAM_ISP, "Failed to get mem_hdl:0x%x, rc=%d",
-					ctx->last_submit_bl_cmd.cmd[i].mem_handle, rc);
-				return rc;
-			}
-			if (((size_t)ctx->last_submit_bl_cmd.cmd[i].offset >= len) ||
-				((size_t)ctx->last_submit_bl_cmd.cmd[i].input_len) >
-				(len - (size_t)ctx->last_submit_bl_cmd.cmd[i].offset)) {
-				CAM_ERR(CAM_UTIL, "invalid mem len:%u cmd_inplen:%u off:%u",
-					len, ctx->last_submit_bl_cmd.cmd[i].input_len,
-					ctx->last_submit_bl_cmd.cmd[i].offset);
-				cam_mem_put_cpu_buf(ctx->last_submit_bl_cmd.cmd[i].mem_handle);
-				return -EINVAL;
-			}
 
 			buf_start = (uint32_t *)((uint8_t *) buf_addr +
 				ctx->last_submit_bl_cmd.cmd[i].offset);
@@ -2869,7 +2855,6 @@ static int cam_tfe_mgr_config_hw(void *hw_mgr_priv,
 	cdm_cmd->cookie               = cfg->request_id;
 	cdm_cmd->gen_irq_arb          = false;
 	cdm_cmd->genirq_buff          = &hw_update_data->kmd_cmd_buff_info;
-	cdm_cmd->fast_complete        = NULL;
 
 	for (i = 0; i < cfg->num_hw_update_entries; i++) {
 		cmd = (cfg->hw_update_entries + i);
@@ -2898,16 +2883,6 @@ static int cam_tfe_mgr_config_hw(void *hw_mgr_priv,
 				continue;
 			}
 
-			if (((size_t)cdm_cmd->cmd_flex[i - skip].offset >= len) ||
-				((len - (size_t)cdm_cmd->cmd_flex[i - skip].offset) <
-				(size_t)cdm_cmd->cmd_flex[i - skip].len)) {
-				CAM_ERR(CAM_UTIL, "invalid mem len:%u cmd_inplen:%u off:%u",
-					len, cdm_cmd->cmd_flex[i - skip].len,
-					cdm_cmd->cmd_flex[i - skip].offset);
-				cam_mem_put_cpu_buf(cdm_cmd->cmd_flex[i - skip].bl_addr.mem_handle);
-				return -EINVAL;
-			}
-
 			buf_start = (uint32_t *)((uint8_t *) buf_addr +
 				cdm_cmd->cmd_flex[i - skip].offset);
 			buf_end = (uint32_t *)((uint8_t *) buf_start +
@@ -2918,7 +2893,6 @@ static int cam_tfe_mgr_config_hw(void *hw_mgr_priv,
 					"first cmd in cmd_buf is not change_base, cmd_type: %u ctx id: %u request id: %llu",
 					cmd_type, ctx->ctx_index, cfg->request_id);
 				cam_cdm_util_dump_cmd_buf(buf_start, buf_end);
-				cam_mem_put_cpu_buf(cdm_cmd->cmd_flex[i - skip].bl_addr.mem_handle);
 				return -EINVAL;
 			}
 
@@ -2927,10 +2901,8 @@ static int cam_tfe_mgr_config_hw(void *hw_mgr_priv,
 					"found invalid cmd in cmd_buf, ctx id: %u request id: %llu",
 					ctx->ctx_index, cfg->request_id);
 				cam_cdm_util_dump_cmd_buf(buf_start, buf_end);
-				cam_mem_put_cpu_buf(cdm_cmd->cmd_flex[i - skip].bl_addr.mem_handle);
 				return -EINVAL;
 			}
-			cam_mem_put_cpu_buf(cdm_cmd->cmd_flex[i - skip].bl_addr.mem_handle);
 		}
 	}
 
@@ -4465,9 +4437,7 @@ static int cam_tfe_update_dual_config(
 	uint32_t                                    outport_id;
 	size_t                                      len = 0, remain_len = 0;
 	uint32_t                                   *cpu_addr;
-	uint32_t                                   *cpu_addr_local = NULL;
 	uint32_t                                    i, j, stp_index;
-	size_t                                      packet_size = 0;
 
 	CAM_DBG(CAM_ISP, "cmd des size %d, length: %d",
 		cmd_desc->size, cmd_desc->length);
@@ -4490,23 +4460,7 @@ static int cam_tfe_update_dual_config(
 
 	remain_len = len - cmd_desc->offset;
 	cpu_addr += (cmd_desc->offset / 4);
-	packet_size = cmd_desc->length;
-
-	if (packet_size <= remain_len) {
-		rc = cam_common_mem_kdup((void **)&cpu_addr_local,
-			cpu_addr, packet_size);
-		if (rc) {
-			CAM_ERR(CAM_ISP, "Alloc and copy cmd desc fail");
-			goto put_ref;
-		}
-	} else {
-		CAM_ERR(CAM_ISP, "Invalid packet header size %u",
-			packet_size);
-		rc = -EINVAL;
-		goto put_ref;
-	}
-
-	dual_config = (struct cam_isp_tfe_dual_config *)cpu_addr_local;
+	dual_config = (struct cam_isp_tfe_dual_config *)cpu_addr;
 
 	if ((dual_config->num_ports *
 		sizeof(struct cam_isp_tfe_dual_stripe_config)) >
@@ -4514,8 +4468,7 @@ static int cam_tfe_update_dual_config(
 			offsetof(struct cam_isp_tfe_dual_config, stripes))) {
 		CAM_ERR(CAM_ISP, "not enough buffer for all the dual configs");
 		cam_mem_put_cpu_buf(cmd_desc->mem_handle);
-		rc = -EINVAL;
-		goto end;
+		return -EINVAL;
 	}
 
 	CAM_DBG(CAM_ISP, "num_ports:%d", dual_config->num_ports);
@@ -4574,9 +4527,8 @@ static int cam_tfe_update_dual_config(
 				goto end;
 		}
 	}
+
 end:
-	cam_common_mem_free(cpu_addr_local);
-put_ref:
 	cam_mem_put_cpu_buf(cmd_desc->mem_handle);
 	return rc;
 }

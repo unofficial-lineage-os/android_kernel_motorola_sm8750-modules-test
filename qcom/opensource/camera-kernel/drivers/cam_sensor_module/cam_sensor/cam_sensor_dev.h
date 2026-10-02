@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * Copyright (c) 2017-2019, 2021 The Linux Foundation. All rights reserved.
- * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+ * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #ifndef _CAM_SENSOR_DEV_H_
@@ -120,8 +120,6 @@ struct cam_sensor_dev_res_info {
  * @is_res_info_updated: Indicate if resolution info is updated
  * @last_applied_done_timestamp : Last applied done timestamp value
  * @hw_no_ops: To determine whether HW operations need to be disabled
- * @read_buf_list: Sensor register read cmd buffer handle list
- * @read_buf_lock: Sensor register read cmd buffer mutex
  */
 struct cam_sensor_ctrl_t {
 	char                           device_name[CAM_CTX_DEV_NAME_MAX_LENGTH];
@@ -163,8 +161,25 @@ struct cam_sensor_ctrl_t {
 	bool                           is_res_info_updated;
 	uint64_t                       last_applied_done_timestamp;
 	bool                           hw_no_ops;
-	struct list_head               read_buf_list;
-	struct mutex                   read_buf_lock;
+#ifdef CONFIG_CCI_ADDR_SWITCH
+	/* add i2c addr switch support*/
+	uint8_t                        i2c_addr_switch;
+	uint16_t                       second_i2c_address;
+	uint8_t                        i2c_switch_reg_addr_Type;
+	uint8_t                        i2c_switch_reg_data_Type;
+	uint16_t                       i2c_switch_reg_addr;
+	uint16_t                       i2c_switch_reg_data;
+	uint16_t                       i2c_switch_reg_delayMs;
+#endif
+#ifdef CONFIG_MOT_SENSOR_PRE_POWERUP
+	bool                           sensor_power_up_done;
+#endif
+	uint8_t                        probe_sub_device;
+	uint16_t                       sub_device_addr;
+	uint8_t                        sub_device_data_type;
+	uint8_t                        sub_device_addr_type;
+	uint16_t                       sub_device_id_addr;
+	uint16_t                       expected_sub_device_id;
 };
 
 /**

@@ -1,13 +1,14 @@
 load("//build/kernel/kleaf:kernel.bzl", "ddk_module")
 load("//build/bazel_common_rules/dist:dist.bzl", "copy_to_dist_dir")
-load("//vendor/qcom/kernel:target_variants.bzl", "get_all_variants")
+load("//msm-kernel:target_variants.bzl", "get_all_variants")
 load(":project_defconfig.bzl", "get_project_defconfig")
 
 def _define_module(target, variant):
     tv = "{}_{}".format(target, variant)
     deps = [
         ":camera_headers",
-        "//vendor/qcom/kernel:all_headers",
+        ":camera_banner",
+        "//msm-kernel:all_headers",
     ]
 
     # Generate the defconfig file dynamically
@@ -25,23 +26,23 @@ def _define_module(target, variant):
 
     if target == "pineapple":
         deps.extend([
-            "//vendor/qcom/sm8750-modules/qcom/opensource/synx-kernel:synx_headers",
-            "//vendor/qcom/sm8750-modules/qcom/opensource/synx-kernel:{}_modules".format(tv),
-            "//vendor/qcom/sm8750-modules/qcom/opensource/securemsm-kernel:smcinvoke_kernel_headers",
-            "//vendor/qcom/sm8750-modules/qcom/opensource/securemsm-kernel:smmu_proxy_headers",
-            "//vendor/qcom/sm8750-modules/qcom/opensource/securemsm-kernel:{}_smcinvoke_dlkm".format(tv),
-            "//vendor/qcom/sm8750-modules/qcom/opensource/securemsm-kernel:{}_smmu_proxy_dlkm".format(tv),
-            "//vendor/qcom/sm8750-modules/qcom/opensource/mmrm-driver:{}_mmrm_driver".format(tv),
+            "//vendor/qcom/opensource/synx-kernel:synx_headers",
+            "//vendor/qcom/opensource/synx-kernel:{}_modules".format(tv),
+            "//vendor/qcom/opensource/securemsm-kernel:smcinvoke_kernel_headers",
+            "//vendor/qcom/opensource/securemsm-kernel:smmu_proxy_headers",
+            "//vendor/qcom/opensource/securemsm-kernel:{}_smcinvoke_dlkm".format(tv),
+            "//vendor/qcom/opensource/securemsm-kernel:{}_smmu_proxy_dlkm".format(tv),
+            "//vendor/qcom/opensource/mmrm-driver:{}_mmrm_driver".format(tv),
         ])
     if target == "sun":
         deps.extend([
-            "//vendor/qcom/sm8750-modules/qcom/opensource/synx-kernel:synx_headers",
-            "//vendor/qcom/sm8750-modules/qcom/opensource/synx-kernel:{}_modules".format(tv),
-            "//vendor/qcom/sm8750-modules/qcom/opensource/securemsm-kernel:smcinvoke_kernel_headers",
-            "//vendor/qcom/sm8750-modules/qcom/opensource/securemsm-kernel:smmu_proxy_headers",
-            "//vendor/qcom/sm8750-modules/qcom/opensource/securemsm-kernel:{}_smcinvoke_dlkm".format(tv),
-            "//vendor/qcom/sm8750-modules/qcom/opensource/securemsm-kernel:{}_smmu_proxy_dlkm".format(tv),
-            "//vendor/qcom/sm8750-modules/qcom/opensource/mmrm-driver:{}_mmrm_driver".format(tv),
+            "//vendor/qcom/opensource/synx-kernel:synx_headers",
+            "//vendor/qcom/opensource/synx-kernel:{}_modules".format(tv),
+            "//vendor/qcom/opensource/securemsm-kernel:smcinvoke_kernel_headers",
+            "//vendor/qcom/opensource/securemsm-kernel:smmu_proxy_headers",
+            "//vendor/qcom/opensource/securemsm-kernel:{}_smcinvoke_dlkm".format(tv),
+            "//vendor/qcom/opensource/securemsm-kernel:{}_smmu_proxy_dlkm".format(tv),
+            "//vendor/qcom/opensource/mmrm-driver:{}_mmrm_driver".format(tv),
         ])
     ddk_module(
         name = "{}_camera".format(tv),
@@ -213,6 +214,14 @@ def _define_module(target, variant):
                     "drivers/cam_sensor_module/cam_flash/cam_flash_core.c",
                     "drivers/cam_sensor_module/cam_flash/cam_flash_soc.c",
                     "drivers/cam_sensor_module/cam_sensor_module_debug.c",
+                    "drivers/cam_sensor_module/cam_actuator/mot_actuator.c",
+                    "drivers/cam_sensor_module/cam_actuator/mot_actuator_policy.c",
+                    "drivers/cam_sensor_module/cam_actuator/mot_ois.c",
+                ],
+            },
+            "CONFIG_CCI_DEBUG_INTF": {
+                True: [
+                    "drivers/cam_sensor_module/cam_cci/cci_intf.c",
                 ],
             },
             "CONFIG_SPECTRA_CUSTOM": {
@@ -228,6 +237,12 @@ def _define_module(target, variant):
             },
             "CONFIG_QCOM_BUS_SCALING": {
                 True: ["drivers/cam_utils/cam_soc_bus.c"],
+            },
+            "CONFIG_MOT_OIS_EARLY_UPGRADE_FW": {
+                True: [
+                    "drivers/cam_sensor_module/cam_ois/cam_ois_sem1217s.c",
+                    "drivers/cam_sensor_module/cam_ois/cam_ois_dw9784.c",
+                ],
             },
             "CONFIG_CAM_PRESIL": {
                 # Sources need to be available to specify
@@ -245,10 +260,11 @@ def _define_module(target, variant):
                 True: ["drivers/cam_vmrm/qrtr/cam_qrtr_comms.c"],
             },
         },
+        copts = ["-include", "$(location :camera_banner)"],
         deps = deps,
         kconfig = "Kconfig",
         defconfig = "{}_defconfig_generated".format(tv),
-        kernel_build = "//vendor/qcom/kernel:{}".format(tv),
+        kernel_build = "//msm-kernel:{}".format(tv),
     )
 
     copy_to_dist_dir(

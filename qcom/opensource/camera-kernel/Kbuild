@@ -56,10 +56,18 @@ endif
 
 ifeq ($(CONFIG_ARCH_PARROT), y)
 include $(CAMERA_KERNEL_ROOT)/config/parrot.mk
-endif
+endif 
 
-ifeq ($(CONFIG_ARCH_SUN), y)
-include $(CAMERA_KERNEL_ROOT)/config/sun.mk
+ifneq (,$(filter hiphid hiphic hiphi hiphid_factory hiphic_factory hiphi_factory, $(TARGET_PRODUCT)))
+include $(CAMERA_KERNEL_ROOT)/config/hiphi.mk
+else ifneq (,$(filter li li_factory, $(TARGET_PRODUCT)))
+include $(CAMERA_KERNEL_ROOT)/config/li.mk
+else ifneq (,$(filter oneli oneli_factory, $(TARGET_PRODUCT)))
+include $(CAMERA_KERNEL_ROOT)/config/oneli.mk
+else ifneq (,$(filter eqs eqs_factory, $(TARGET_PRODUCT)))
+include $(CAMERA_KERNEL_ROOT)/config/eqs.mk
+else ifneq (,$(filter rtwo rtwo_factory, $(TARGET_PRODUCT)))
+include $(CAMERA_KERNEL_ROOT)/config/rtwo.mk
 endif
 
 ifneq ($(KBUILD_EXTRA_CONFIGS),)
@@ -81,9 +89,9 @@ LINUXINCLUDE +=                                 \
 # Optional include directories
 SYNXVENDORDIR=$(CAMERA_KERNEL_ROOT)/../synx-kernel
 ccflags-$(CONFIG_MSM_GLOBAL_SYNX) += -I$(KERNEL_ROOT)/drivers/media/platform/msm/synx
-ccflags-$(CONFIG_TARGET_SYNX_ENABLE) += -I$(SYNXVENDORDIR)/include/uapi/synx/media
-ccflags-$(CONFIG_TARGET_SYNX_ENABLE) += -I$(SYNXVENDORDIR)/msm/synx
-ccflags-$(CONFIG_TARGET_SYNX_ENABLE) += -DCONFIG_TARGET_SYNX_ENABLE=1
+ccflags-$(TARGET_SYNX_ENABLE) += -I$(SYNXVENDORDIR)/include/uapi/synx/media
+ccflags-$(TARGET_SYNX_ENABLE) += -I$(SYNXVENDORDIR)/msm/synx
+ccflags-$(TARGET_SYNX_ENABLE) += -DCONFIG_TARGET_SYNX_ENABLE=1
 ccflags-y += -I$(CAMERA_KERNEL_ROOT)/../securemsm-kernel/
 ccflags-y += -I$(CAMERA_KERNEL_ROOT)/../securemsm-kernel/include/
 
@@ -135,7 +143,7 @@ else
 	ccflags-y += -DCONFIG_CAM_PRESIL=1
 endif
 
-camera-$(CONFIG_TARGET_SYNX_ENABLE) += drivers/cam_sync/cam_sync_synx.o
+camera-$(TARGET_SYNX_ENABLE) += drivers/cam_sync/cam_sync_synx.o
 camera-$(CONFIG_QCOM_CX_IPEAK) += drivers/cam_utils/cam_cx_ipeak.o
 camera-$(CONFIG_QCOM_BUS_SCALING) += drivers/cam_utils/cam_soc_bus.o
 camera-$(CONFIG_INTERCONNECT_QCOM) += drivers/cam_utils/cam_soc_icc.o
@@ -269,6 +277,15 @@ camera-$(CONFIG_SPECTRA_SENSOR) += \
 	drivers/cam_sensor_module/cam_flash/cam_flash_core.o \
 	drivers/cam_sensor_module/cam_flash/cam_flash_soc.o \
 	drivers/cam_sensor_module/cam_sensor_module_debug.o
+
+ifneq (,$(filter $(CONFIG_AF_NOISE_ELIMINATION), y m))
+camera-$(CONFIG_SPECTRA_SENSOR) += \
+	drivers/cam_sensor_module/cam_actuator/mot_actuator.o \
+	drivers/cam_sensor_module/cam_actuator/mot_actuator_policy.o \
+	drivers/cam_sensor_module/cam_actuator/mot_ois.o
+endif
+
+camera-$(CONFIG_CCI_DEBUG_INTF) += drivers/cam_sensor_module/cam_cci/cci_intf.o
 
 camera-$(CONFIG_SPECTRA_CUSTOM) += \
 	drivers/cam_cust/cam_custom_hw_mgr/cam_custom_hw1/cam_custom_sub_mod_soc.o \

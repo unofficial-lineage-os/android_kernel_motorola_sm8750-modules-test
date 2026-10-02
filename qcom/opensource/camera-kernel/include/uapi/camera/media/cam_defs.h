@@ -34,10 +34,16 @@
 #define CAM_CUSTOM_DEV_CONFIG               (CAM_COMMON_OPCODE_BASE_v2 + 0x6)
 #define CAM_QUERY_CAP_GENERIC_BLOB          (CAM_COMMON_OPCODE_BASE_v2 + 0x7)
 #define CAM_ACQUIRE_DEV_V2                  (CAM_COMMON_OPCODE_BASE_v2 + 0x8)
-#define CAM_QUERY_HW_DEV_INFO               (CAM_COMMON_OPCODE_BASE_v2 + 0x9)
 
 #define CAM_EXT_OPCODE_BASE                     0x200
 #define CAM_CONFIG_DEV_EXTERNAL                 (CAM_EXT_OPCODE_BASE + 0x1)
+
+//#ifdef CONFIG_MOT_SENSOR_PRE_POWERUP
+#define CAM_MOT_OPCODE_BASE                     0x250
+#define CAM_MOT_PRE_POWER_UP                    (CAM_MOT_OPCODE_BASE + 0x1)
+#define CAM_MOT_PRE_POWER_DOWN                  (CAM_MOT_OPCODE_BASE + 0x2)
+#define CAM_MOT_QUERY_SENSOR_STATUS             (CAM_MOT_OPCODE_BASE + 0x3)
+//#endif
 
 /* camera handle type */
 #define CAM_HANDLE_USER_POINTER                 1

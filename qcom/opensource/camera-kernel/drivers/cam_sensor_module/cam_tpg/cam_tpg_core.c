@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2021, The Linux Foundation. All rights reserved.
- * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+ * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include "cam_tpg_core.h"
@@ -14,8 +14,7 @@ int cam_tpg_shutdown(struct cam_tpg_device *tpg_dev)
 	if (tpg_dev != NULL) {
 		CAM_INFO(CAM_TPG, "TPG[%d] shutdown cleanup.",
 				tpg_dev->soc_info.index);
-		if (!tpg_dev->hw_no_ops)
-			tpg_hw_reset(&tpg_dev->tpg_hw);
+		tpg_hw_reset(&tpg_dev->tpg_hw);
 		tpg_dev->state = CAM_TPG_STATE_INIT;
 	}
 	return 0;
@@ -184,11 +183,7 @@ static int cam_tpg_process_crm_evt(
 
 	switch(event->evt_type) {
 	case CAM_REQ_MGR_LINK_EVT_SOF_FREEZE:
-		if (tpg_dev->hw_no_ops) {
-			CAM_DBG(CAM_TPG, "TPG[%d] SOF Freeze hw_no_ops: %d",
-				tpg_dev->soc_info.index, tpg_dev->hw_no_ops);
-		} else
-			tpg_hw_dump_status(&tpg_dev->tpg_hw);
+		tpg_hw_dump_status(&tpg_dev->tpg_hw);
 		break;
 	default:
 		CAM_DBG(CAM_TPG, "Got crm event notification: %d", event->evt_type);
@@ -325,13 +320,11 @@ static int __cam_tpg_handle_release_dev(
 	if (tpg_dev->state == CAM_TPG_STATE_START) {
 		CAM_DBG(CAM_TPG, "TPG[%d] release from start state",
 						tpg_dev->soc_info.index);
-		if (!tpg_dev->hw_no_ops) {
-			rc = tpg_hw_stop(&tpg_dev->tpg_hw);
-			if (rc < 0) {
-				CAM_ERR(CAM_TPG, "TPG[%d] unable to stop tpg",
+		rc = tpg_hw_stop(&tpg_dev->tpg_hw);
+		if (rc < 0) {
+			CAM_ERR(CAM_TPG, "TPG[%d] unable to stop tpg",
 						tpg_dev->soc_info.index);
-				return rc;
-			}
+			return rc;
 		}
 	}
 	rc = tpg_hw_release(&tpg_dev->tpg_hw);
@@ -371,16 +364,12 @@ static int __cam_tpg_handle_start_dev(
 				tpg_dev->soc_info.index, tpg_dev->state);
 		return -EINVAL;
 	}
-	if (!tpg_dev->hw_no_ops)
-		rc = tpg_hw_start(&tpg_dev->tpg_hw);
-
+	rc = tpg_hw_start(&tpg_dev->tpg_hw);
 	if (rc) {
-		CAM_ERR(CAM_TPG, "TPG[%d] START_DEV failed hw_no_ops: %d",
-				tpg_dev->soc_info.index, tpg_dev->hw_no_ops);
+		CAM_ERR(CAM_TPG, "TPG[%d] START_DEV failed", tpg_dev->soc_info.index);
 	} else {
 		tpg_dev->state = CAM_TPG_STATE_START;
-		CAM_INFO(CAM_TPG, "TPG[%d] START_DEV done hw_no_ops: %d.",
-				tpg_dev->soc_info.index, tpg_dev->hw_no_ops);
+		CAM_INFO(CAM_TPG, "TPG[%d] START_DEV done.", tpg_dev->soc_info.index);
 	}
 
 	return rc;
@@ -409,17 +398,14 @@ static int __cam_tpg_handle_stop_dev(
 		rc = -EINVAL;
 	}
 
-	if ((!rc) && (!tpg_dev->hw_no_ops))
+	if (!rc)
 		rc = tpg_hw_stop(&tpg_dev->tpg_hw);
 
-
 	if (rc) {
-		CAM_ERR(CAM_TPG, "TPG[%d] STOP_DEV failed  hw_no_ops: %d",
-				tpg_dev->soc_info.index, tpg_dev->hw_no_ops);
+		CAM_ERR(CAM_TPG, "TPG[%d] STOP_DEV failed", tpg_dev->soc_info.index);
 	} else {
 		tpg_dev->state = CAM_TPG_STATE_ACQUIRE;
-		CAM_INFO(CAM_TPG, "TPG[%d] STOP_DEV done hw_no_ops: %d.",
-				tpg_dev->soc_info.index, tpg_dev->hw_no_ops);
+		CAM_INFO(CAM_TPG, "TPG[%d] STOP_DEV done.", tpg_dev->soc_info.index);
 	}
 	return rc;
 }
@@ -430,12 +416,9 @@ static int cam_tpg_validate_cmd_descriptor(
 {
 	int rc = 0;
 	uintptr_t generic_ptr;
-	size_t            len_of_buff                 = 0;
-	size_t            remain_len                  = 0;
-	ssize_t           cmd_header_size             = 0;
-	uint32_t          *cmd_buf                    = NULL;
-	struct tpg_command_header_t *cmd_header_user  = NULL;
-	struct tpg_command_header_t *cmd_header       = NULL;
+	size_t len_of_buff = 0;
+	uint32_t                *cmd_buf = NULL;
+	struct tpg_command_header_t *cmd_header = NULL;
 
 	if (!cmd_desc || !cmd_type || !cmd_addr)
 		return -EINVAL;
@@ -448,65 +431,15 @@ static int cam_tpg_validate_cmd_descriptor(
 		return rc;
 	}
 
-	if (cmd_desc->offset >= len_of_buff) {
-		CAM_ERR(CAM_TPG, "Buffer Offset: %d past length of buffer %zu",
-			cmd_desc->offset,
-			len_of_buff);
-		rc = -EINVAL;
-		goto end;
-	}
-	remain_len = len_of_buff - cmd_desc->offset;
-
-	if ((cmd_desc->size > remain_len) ||
-		(cmd_desc->length > cmd_desc->size)) {
-		CAM_ERR(CAM_TPG, "Invalid cmd desc, size: %zu remainlen: %zu length: %zu",
-			cmd_desc->size,
-			remain_len,
-			cmd_desc->length);
-		rc = -EINVAL;
-		goto end;
-	}
-
-	if (remain_len < sizeof(struct tpg_command_header_t)) {
-		CAM_ERR(CAM_TPG, "Invalid buf size, remain len: %zu cmd header size: %zu",
-			remain_len,
-			sizeof(struct tpg_command_header_t));
-		rc = -EINVAL;
-		goto end;
-	}
-
 	cmd_buf = (uint32_t *)generic_ptr;
-	cmd_buf += cmd_desc->offset / sizeof(uint32_t);
-	cmd_header_user = (struct tpg_command_header_t *)cmd_buf;
+	cmd_buf += cmd_desc->offset / 4;
+	cmd_header = (struct tpg_command_header_t *)cmd_buf;
 
-	cmd_header_size = cmd_header_user->size;
-
-	/* Check for cmd_header_size overflow or underflow condition */
-	if ((cmd_header_size < 0) ||
-		((SIZE_MAX - cmd_header_size) < cmd_desc->offset)) {
-		CAM_ERR(CAM_TPG, "Invalid cmd header size: %zu, offset: %d",
-			cmd_header_size,
-			cmd_desc->offset);
+	if (len_of_buff < sizeof(struct tpg_command_header_t)) {
+		CAM_ERR(CAM_TPG, "Got invalid command descriptor of invalid cmd buffer size");
 		rc = -EINVAL;
 		goto end;
 	}
-
-	if ((cmd_desc->offset + (size_t)cmd_header_size) > len_of_buff) {
-		CAM_ERR(CAM_TPG, "Cmd header offset mismatch, offset: %d size: %zu len: %zu",
-			cmd_desc->offset,
-			cmd_header_size,
-			len_of_buff);
-		rc = -EINVAL;
-		goto end;
-	}
-
-	cmd_header = kmemdup(cmd_header_user, cmd_header_size, GFP_KERNEL);
-	if (!cmd_header) {
-		CAM_ERR(CAM_TPG, "Local cmd_header mem allocation failed");
-		rc = -ENOMEM;
-		goto end;
-	}
-	cmd_header->size = cmd_header_size;
 
 	switch (cmd_header->cmd_type) {
 	case TPG_CMD_TYPE_GLOBAL_CONFIG: {
@@ -560,8 +493,6 @@ static int cam_tpg_validate_cmd_descriptor(
 		break;
 	}
 	case TPG_CMD_TYPE_SETTINGS_CONFIG: {
-		struct tpg_settings_config_t *settings;
-
 		if (cmd_header->size != sizeof(struct tpg_settings_config_t)) {
 			CAM_ERR(CAM_TPG, "Got invalid settings config command recv: %d exp: %d",
 					cmd_header->size,
@@ -569,20 +500,6 @@ static int cam_tpg_validate_cmd_descriptor(
 			rc = -EINVAL;
 			goto end;
 		}
-
-		settings = (struct tpg_settings_config_t *)cmd_header;
-		if ((cmd_desc->offset + settings->settings_array_offset) >
-			(len_of_buff -
-			settings->settings_array_size * sizeof(struct tpg_reg_settings))) {
-			CAM_ERR(CAM_TPG,
-				"Got invalid setting config, cmd offset: %u, setting array offset: %u, num reg settings: %u, size of reg setting: %zu, len of buf: %zu",
-				cmd_desc->offset, settings->settings_array_offset,
-				settings->settings_array_size, sizeof(struct tpg_reg_settings),
-				len_of_buff);
-			rc = -EINVAL;
-			goto end;
-		}
-
 		CAM_INFO(CAM_TPG, "Got settings config command");
 		*cmd_type = TPG_CMD_TYPE_SETTINGS_CONFIG;
 		break;
@@ -592,6 +509,10 @@ static int cam_tpg_validate_cmd_descriptor(
 		rc = -EINVAL;
 		CAM_ERR(CAM_TPG, "invalid config command");
 		goto end;
+	}
+	if ((ssize_t)cmd_desc->offset > (len_of_buff - cmd_header->size)) {
+		CAM_ERR(CAM_TPG, "cmd header offset mismatch");
+		rc = -EINVAL;
 	}
 
 	*cmd_addr = (uintptr_t)cmd_header;
@@ -607,7 +528,6 @@ static int cam_tpg_cmd_buf_parse(
 	int rc = 0, i = 0;
 	struct cam_cmd_buf_desc *cmd_desc = NULL;
 	struct tpg_hw_request *req = NULL;
-	uintptr_t cmd_addr = 0;
 
 	if (!tpg_dev || !packet)
 		return -EINVAL;
@@ -630,6 +550,7 @@ static int cam_tpg_cmd_buf_parse(
 
 	for (i = 0; i < packet->num_cmd_buf; i++) {
 		uint32_t cmd_type = TPG_CMD_TYPE_INVALID;
+		uintptr_t cmd_addr;
 		struct tpg_command_header_t *cmd_header = NULL;
 
 		cmd_desc = (struct cam_cmd_buf_desc *)
@@ -639,8 +560,10 @@ static int cam_tpg_cmd_buf_parse(
 
 		rc = cam_tpg_validate_cmd_descriptor(cmd_desc,
 				&cmd_type, &cmd_addr);
-		if (rc < 0)
-			goto free_request;
+		if (rc < 0) {
+			CAM_MEM_FREE(req);
+			goto end;
+		}
 
 		cmd_header = (struct tpg_command_header_t *)cmd_addr;
 
@@ -653,15 +576,13 @@ static int cam_tpg_cmd_buf_parse(
 			tpg_dev->tpg_hw.tpg_clock = req->global_config.tpg_clock;
 			break;
 		case TPG_CMD_TYPE_STREAM_CONFIG: {
-			if ((cmd_header->cmd_version == 3) &&
-						(!tpg_dev->hw_no_ops)) {
+			if (cmd_header->cmd_version == 3) {
 				rc = tpg_hw_add_stream_v3(&tpg_dev->tpg_hw,
 					req,
 					(struct tpg_stream_config_v3_t *)cmd_addr);
 				CAM_DBG(CAM_TPG, "Stream config v3");
-			} else if ((cmd_header->cmd_version == 1 ||
-				cmd_header->cmd_version == 2) &&
-						(!tpg_dev->hw_no_ops)) {
+			} else if (cmd_header->cmd_version == 1 ||
+				cmd_header->cmd_version == 2) {
 				rc = tpg_hw_add_stream(&tpg_dev->tpg_hw,
 					req,
 					(struct tpg_stream_config_t *)cmd_addr);
@@ -674,9 +595,7 @@ static int cam_tpg_cmd_buf_parse(
 		case TPG_CMD_TYPE_SETTINGS_CONFIG: {
 			CAM_DBG(CAM_TPG, "TPG[%d] Got TPG Settings Config",
 							tpg_dev->soc_info.index);
-			if (!tpg_dev->hw_no_ops)
-				rc = tpg_hw_copy_settings_config(
-				&tpg_dev->tpg_hw,
+			rc = tpg_hw_copy_settings_config(&tpg_dev->tpg_hw,
 				(struct tpg_settings_config_t *)cmd_addr);
 			break;
 		}
@@ -692,19 +611,14 @@ static int cam_tpg_cmd_buf_parse(
 			goto free_request;
 			break;
 		}
-		CAM_MEM_FREE((void *)cmd_addr);
-		cmd_addr = 0;
 	}
-	if (!tpg_dev->hw_no_ops)
-		tpg_hw_add_request(&tpg_dev->tpg_hw, req);
+	tpg_hw_add_request(&tpg_dev->tpg_hw, req);
+end:
 	return rc;
 free_request:
-	if (cmd_addr != 0) {
-		CAM_MEM_FREE((void *)cmd_addr);
-		cmd_addr = 0;
-	}
 	/* free the request and return the failure */
 	tpg_hw_free_request(&tpg_dev->tpg_hw, req);
+	CAM_MEM_FREE(req);
 	return rc;
 }
 
@@ -717,6 +631,7 @@ static int cam_tpg_packet_parse(
 	size_t len_of_buff = 0, remain_len = 0;
 	struct cam_packet *csl_packet_u = NULL;
 	struct cam_packet *csl_packet = NULL;
+	size_t packet_size;
 
 	rc = cam_mem_get_cpu_buf(config->packet_handle,
 		&generic_ptr, &len_of_buff);
@@ -738,10 +653,27 @@ static int cam_tpg_packet_parse(
 	remain_len -= (size_t)config->offset;
 	csl_packet_u = (struct cam_packet *)(generic_ptr +
 		(uint32_t)config->offset);
-	rc = cam_packet_util_copy_pkt_to_kmd(csl_packet_u, &csl_packet, remain_len);
-	if (rc) {
-		CAM_ERR(CAM_TPG, "Copying packet to KMD failed");
+	packet_size = csl_packet_u->header.size;
+	if (packet_size <= remain_len) {
+		rc = cam_common_mem_kdup((void **)&csl_packet,
+			csl_packet_u, packet_size);
+		if (rc) {
+			CAM_ERR(CAM_TPG, "Alloc and copy request: %lld packet fail",
+				csl_packet_u->header.request_id);
+			goto end;
+		}
+	} else {
+		CAM_ERR(CAM_TPG, "Invalid packet header size %u",
+			packet_size);
+		rc = -EINVAL;
 		goto end;
+	}
+
+	if (cam_packet_util_validate_packet(csl_packet,
+		remain_len)) {
+		CAM_ERR(CAM_TPG, "Invalid packet params");
+		rc = -EINVAL;
+		goto free_kdup;
 	}
 
 	CAM_DBG(CAM_TPG, "TPG[%d] "
@@ -763,9 +695,7 @@ static int cam_tpg_packet_parse(
 			CAM_ERR(CAM_TPG, "CMD buffer parse failed");
 			goto free_kdup;
 		}
-		if (!tpg_dev->hw_no_ops)
-			tpg_hw_config(&tpg_dev->tpg_hw,
-				TPG_HW_CMD_INIT_CONFIG, NULL);
+		tpg_hw_config(&tpg_dev->tpg_hw, TPG_HW_CMD_INIT_CONFIG, NULL);
 		break;
 	}
 	case CAM_TPG_PACKET_OPCODE_NOP:

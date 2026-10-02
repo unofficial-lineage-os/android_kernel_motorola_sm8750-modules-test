@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * Copyright (c) 2017-2019, 2021, The Linux Foundation. All rights reserved.
- * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+ * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 
@@ -101,8 +101,6 @@ struct actuator_intf_params {
  * @act_info: Sensor query cap structure
  * @of_node: Node ptr
  * @last_flush_req: Last request to flush
- * @read_buf_list         : Actuator register read cmd buffer handle list
- * @read_buf_lock         : Actuator register read cmd buffer mutex
  */
 struct cam_actuator_ctrl_t {
 	char device_name[CAM_CTX_DEV_NAME_MAX_LENGTH];
@@ -122,8 +120,15 @@ struct cam_actuator_ctrl_t {
 	struct cam_actuator_query_cap act_info;
 	struct actuator_intf_params bridge_intf;
 	uint32_t last_flush_req;
-	struct list_head read_buf_list;
-	struct mutex read_buf_lock;
+#ifdef CONFIG_MOT_OIS_AF_USE_SAME_IC
+	bool af_ois_use_same_ic;
+#endif
+#ifdef CONFIG_MOT_DONGWOON_OIS_AF_DRIFT
+	bool af_drift_supported;
+#endif
+#ifdef CONFIG_AF_NOISE_ELIMINATION
+	bool is_multi_user_supported;
+#endif
 };
 
 /**

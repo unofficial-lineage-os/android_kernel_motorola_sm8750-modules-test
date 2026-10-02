@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * Copyright (c) 2017-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+ * Copyright (c) 2022-2024, Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #ifndef _CAM_IFE_HW_MGR_H_
@@ -79,12 +79,10 @@ enum cam_ife_ctx_master_type {
  * @sfe_sensor_diag_cfg:       sfe sensor diag config
  * @csid_test_bus:             csid test bus config
  * @sfe_cache_debug:           sfe cache debug info
- * @perf_cnt_res_id:           res_id for WM on which perf cnt is enabled
  * @ife_perf_counter_val:      ife perf counter values
  * @sfe_perf_counter_val:      sfe perf counter values
  * @csid_domain_id_value:      Value of domain id to set on CSID
  * @csid_out_of_sync_simul:    Controls out of sync simulation
- * @force_acq_csid:            Acquire specific csid
  * @enable_req_dump:           Enable request dump on HW errors
  * @per_req_reg_dump:          Enable per request reg dump
  * @disable_ubwc_comp:         Disable UBWC compression
@@ -110,14 +108,10 @@ struct cam_ife_hw_mgr_debug {
 	uint32_t       sfe_sensor_diag_cfg;
 	uint32_t       csid_test_bus;
 	uint32_t       sfe_cache_debug[CAM_SFE_HW_NUM_MAX];
-	uint32_t       perf_cnt_res_id;
 	uint32_t      *ife_perf_counter_val;
 	uint32_t      *sfe_perf_counter_val;
 	uint32_t       csid_domain_id_value;
 	uint32_t       csid_out_of_sync_simul;
-	uint32_t      *ife_bus_wr_perf_counter_val;
-	uint32_t      *sfe_bus_wr_perf_counter_val;
-	uint32_t       force_acq_csid;
 	bool           enable_req_dump;
 	bool           per_req_reg_dump;
 	bool           disable_ubwc_comp;
@@ -130,7 +124,6 @@ struct cam_ife_hw_mgr_debug {
 	bool           enable_csid_set_domain_id;
 	bool           per_req_wait_cdm;
 	bool           enable_cdr_sweep_debug;
-	bool           enable_sfe_wr_perf_cntr;
 };
 
 /**
@@ -469,7 +462,6 @@ struct cam_ife_hw_mgr_ctx {
 	uint32_t                                   acq_hw_ctxt_src_dst_map[CAM_ISP_MULTI_CTXT_MAX];
 	uint32_t                                   pri_rdi_out_res;
 	struct cam_isp_hw_per_req_info             per_req_info[MAX_DRV_REQUEST_DEPTH];
-	uint8_t                                    wr_per_req_index;
 	bool                                       is_init_drv_cfg_received;
 };
 
@@ -508,8 +500,6 @@ struct cam_isp_ife_sfe_hw_caps {
 	uint32_t                max_sfe_out_res_type;
 	uint32_t                num_ife_perf_counters;
 	uint32_t                num_sfe_perf_counters;
-	uint32_t                num_ife_bus_wr_perf_counters;
-	uint32_t                num_sfe_bus_wr_perf_counters;
 	uint32_t                max_dt_supported;
 	bool                    support_consumed_addr;
 	struct cam_isp_hw_regiter_dump_data skip_regdump_data;

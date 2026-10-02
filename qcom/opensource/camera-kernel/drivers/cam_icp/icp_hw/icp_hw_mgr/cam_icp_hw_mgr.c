@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2017-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022-2025, Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2024, Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include <linux/uaccess.h>
@@ -793,9 +793,7 @@ static int32_t cam_icp_ctx_timer(void *priv, void *data)
 	}
 
 	mutex_lock(&hw_mgr->ctx_mutex[ctx_id]);
-	if ((!test_bit(ctx_id, hw_mgr->active_ctx_info.active_ctx_bitmap)) ||
-		(ctx_info->ctx_acquired_timestamp !=
-			hw_mgr->ctx_acquired_timestamp[ctx_id])) {
+	if (!test_bit(ctx_id, hw_mgr->active_ctx_info.active_ctx_bitmap)) {
 		CAM_WARN(CAM_ICP, "ctx data is released before accessing it, ctx_id: %u",
 			ctx_id);
 		goto end;
@@ -851,7 +849,6 @@ static void cam_icp_ctx_timer_cb(struct timer_list *timer_data)
 
 	ctx_info->ctx_data = ctx_data;
 	ctx_info->ctx_id = ctx_data->ctx_id;
-	ctx_info->ctx_acquired_timestamp = hw_mgr->ctx_acquired_timestamp[ctx_data->ctx_id];
 
 	spin_lock_irqsave(&hw_mgr->hw_mgr_lock, flags);
 	task = cam_req_mgr_workq_get_task(hw_mgr->timer_work);
@@ -3051,7 +3048,7 @@ static inline int cam_icp_mgr_process_msg_ofe_config_io(
 		goto end;
 	}
 
-	CAM_DBG(CAM_ICP, "%s: received OFE config io response",
+	CAM_DBG(CAM_ICP, "received OFE config io response",
 		ctx_data->ctx_id_string);
 	complete(&ctx_data->wait_complete);
 
@@ -3067,25 +3064,14 @@ static int cam_icp_mgr_process_ofe_direct_ack_msg(
 	uint32_t *msg_ptr)
 {
 	int rc = 0;
-	uint32_t ctx_id;
-
-	struct hfi_msg_dev_async_ack *ioconfig_ack = NULL;
-	struct cam_icp_hw_ctx_data *ctx_data = NULL;
-
-	ioconfig_ack = (struct hfi_msg_dev_async_ack *)msg_ptr;
-
-	ctx_id = (uint32_t)ioconfig_ack->user_data2;
-	if (!test_bit(ctx_id, hw_mgr->active_ctx_info.active_ctx_bitmap)) {
-		CAM_WARN(CAM_ICP, "ctx data is released before accessing it, ctx_id: %u",
-			ctx_id);
-		rc = -EFAULT;
-		goto end;
-	}
-
-	ctx_data = U64_TO_PTR(ioconfig_ack->user_data1);
 
 	switch (msg_ptr[ICP_PACKET_OPCODE]) {
 	case HFI_OFE_CMD_OPCODE_ABORT: {
+		struct hfi_msg_dev_async_ack *ioconfig_ack = NULL;
+		struct cam_icp_hw_ctx_data *ctx_data = NULL;
+
+		ioconfig_ack = (struct hfi_msg_dev_async_ack *)msg_ptr;
+		ctx_data = U64_TO_PTR(ioconfig_ack->user_data1);
 		if (cam_presil_mode_enabled()) {
 			if (atomic_read(&hw_mgr->frame_in_process)) {
 				if (hw_mgr->frame_in_process_ctx_id == ctx_data->ctx_id) {
@@ -3108,6 +3094,11 @@ static int cam_icp_mgr_process_ofe_direct_ack_msg(
 		break;
 	}
 	case HFI_OFE_CMD_OPCODE_DESTROY: {
+		struct hfi_msg_dev_async_ack *ioconfig_ack = NULL;
+		struct cam_icp_hw_ctx_data *ctx_data = NULL;
+
+		ioconfig_ack = (struct hfi_msg_dev_async_ack *)msg_ptr;
+		ctx_data = U64_TO_PTR(ioconfig_ack->user_data1);
 		CAM_DBG(CAM_ICP, "received OFE destroy done msg: %u", ctx_data->state);
 		if ((ctx_data->state == CAM_ICP_CTX_STATE_RELEASE) ||
 			(ctx_data->state == CAM_ICP_CTX_STATE_IN_USE))
@@ -3120,7 +3111,6 @@ static int cam_icp_mgr_process_ofe_direct_ack_msg(
 		return -EINVAL;
 	}
 
-end:
 	return rc;
 }
 
@@ -3363,18 +3353,6 @@ static void cam_icp_mgr_process_dbg_buf(struct cam_icp_hw_mgr *hw_mgr)
 
 		while (remain_len) {
 			pkt_ptr = msg_ptr;
-
-			if (remain_len >= (ICP_DBG_BUF_SIZE_IN_WORDS << BYTE_WORD_SHIFT) ||
-				(pkt_ptr >= hw_mgr->dbg_buf + ICP_DBG_BUF_SIZE_IN_WORDS) ||
-				(pkt_ptr[ICP_PACKET_TYPE] != HFI_MSG_SYS_DEBUG)) {
-				CAM_WARN(CAM_ICP,
-					"Error message: remain_len:%u, dbg_buf:%p pkt_ptr:%p pkt_size:%u pkt_type:0x%x read_in_words:%d",
-					remain_len, hw_mgr->dbg_buf, pkt_ptr,
-					pkt_ptr[ICP_PACKET_SIZE], pkt_ptr[ICP_PACKET_TYPE],
-					read_in_words);
-				return;
-			}
-
 			if (remain_len < pkt_ptr[ICP_PACKET_SIZE]) {
 				/*
 				 * MSG is broken into two parts, need to read from dbg q again
@@ -4318,8 +4296,6 @@ add_ctx_data:
 	}
 	list_add_tail(&ctx_data->list, next_list_head);
 
-	hw_mgr->ctx_acquired_timestamp[i] = ktime_get_boottime_ns();
-
 	set_bit(i, hw_mgr->active_ctx_info.active_ctx_bitmap);
 	return 0;
 }
@@ -4813,7 +4789,7 @@ static int cam_icp_mgr_populate_abort_cmd(struct cam_icp_hw_ctx_data *ctx_data,
 	abort_cmd->num_fw_handles = 1;
 	abort_cmd->fw_handles_flex[0] = ctx_data->fw_handle;
 	abort_cmd->user_data1 = PTR_TO_U64(ctx_data);
-	abort_cmd->user_data2 = (uint64_t)ctx_data->ctx_id;
+	abort_cmd->user_data2 = (uint64_t)0x0;
 
 	*abort_cmd_ptr = abort_cmd;
 
@@ -4966,7 +4942,7 @@ static int cam_icp_mgr_destroy_handle(
 	destroy_cmd->num_fw_handles = 1;
 	destroy_cmd->fw_handles_flex[0] = ctx_data->fw_handle;
 	destroy_cmd->user_data1 = PTR_TO_U64(ctx_data);
-	destroy_cmd->user_data2 = (uint64_t)ctx_data->ctx_id;
+	destroy_cmd->user_data2 = (uint64_t)0x0;
 
 	reinit_completion(&ctx_data->wait_complete);
 
@@ -5124,8 +5100,6 @@ static int cam_icp_mgr_release_ctx(
 
 	CAM_DBG(CAM_ICP, "[%s] X: ctx_id = %d", hw_mgr->hw_mgr_name, ctx_data->ctx_id);
 
-	hw_mgr->ctx_acquired_timestamp[ctx_id] = 0;
-
 	/* Free ctx data in the queue */
 	cam_icp_mgr_put_ctx(hw_mgr, ctx_data);
 	mutex_unlock(&hw_mgr->ctx_mutex[ctx_id]);
@@ -5156,13 +5130,13 @@ static unsigned long cam_icp_hw_mgr_mini_dump_cb(void *dst, unsigned long len,
 	hw_mgr_idx = *((uint32_t *)priv_data);
 	if (hw_mgr_idx >= CAM_ICP_SUBDEV_MAX) {
 		CAM_ERR(CAM_ICP, "Invalid index to hw mgr: %u", hw_mgr_idx);
-		return 0;
+		return -EINVAL;
 	}
 
 	hw_mgr = g_icp_hw_mgr[hw_mgr_idx];
 	if (!hw_mgr) {
 		CAM_ERR(CAM_ICP, "Uninitialized hw mgr for subdev: %u", hw_mgr_idx);
-		return 0;
+		return -EINVAL;
 	}
 
 	md = (struct cam_icp_hw_mini_dump_info *)dst;
@@ -5612,7 +5586,7 @@ static int cam_icp_mgr_send_memory_region_info(
 		region_info->num_valid_regions++;
 
 		CAM_DBG(CAM_ICP,
-			"LLCC mem regions llcc_reg[0x%x:0x%x]",
+			"LLCC mem regions iova[0x%x:0x%x] len[0x%x:0x%x]",
 			hw_mgr->hfi_mem.llcc_reg.iova, hw_mgr->hfi_mem.llcc_reg.len);
 	}
 
@@ -6145,13 +6119,13 @@ static int cam_icp_mgr_config_hw(void *hw_mgr_priv, void *config_hw_args)
 	}
 
 	if (cam_presil_mode_enabled()) {
-		CAM_DBG(CAM_PRESIL, "%s: presil: locking frame_in_process %d req id %llu",
+		CAM_DBG(CAM_PRESIL, "%s: presil: locking frame_in_process %d req id %u",
 			ctx_data->ctx_id_string, atomic_read(&hw_mgr->frame_in_process),
 			config_args->request_id);
 		down_write(&frame_in_process_sem);
 		atomic_set(&hw_mgr->frame_in_process, 1);
 		hw_mgr->frame_in_process_ctx_id = ctx_data->ctx_id;
-		CAM_DBG(CAM_PRESIL, "%s: presil: locked frame_in_process req id %llu ctx_id %d",
+		CAM_DBG(CAM_PRESIL, "%s: presil: locked frame_in_process req id %u ctx_id %d",
 			ctx_data->ctx_id_string, config_args->request_id,
 			hw_mgr->frame_in_process_ctx_id);
 		msleep(100);
@@ -6566,17 +6540,6 @@ static int cam_icp_process_stream_settings(
 				"%s: Failed to get cmd region iova for handle %u",
 				ctx_data->ctx_id_string,
 				cmd_mem_regions->map_info_array_flex[i].mem_handle);
-			CAM_MEM_FREE(map_cmd);
-			return -EINVAL;
-		}
-
-		if (cmd_mem_regions->map_info_array_flex[i].offset >= len) {
-			CAM_ERR(CAM_ICP,
-				"%s: Mem region offset exceeds length of the buffer, mem handle: 0x%x, iova: %pK, len: %u, offset: 0x%x",
-				ctx_data->ctx_id_string,
-				cmd_mem_regions->map_info_array_flex[i].mem_handle,
-				(uint32_t)iova, (uint32_t)len,
-				cmd_mem_regions->map_info_array_flex[i].offset);
 			CAM_MEM_FREE(map_cmd);
 			return -EINVAL;
 		}
@@ -8763,7 +8726,7 @@ static int cam_icp_mgr_acquire_hw(void *hw_mgr_priv, void *acquire_hw_args)
 		 * in terms of acquire API version and the port security configuration.
 		 */
 		CAM_DBG(CAM_ICP, "%s: number of existing secure contexts = %d",
-			ctx_data->ctx_id_string, hw_mgr->num_secure_contexts[hw_dev_type]);
+			hw_mgr->num_secure_contexts[hw_dev_type]);
 		if (hw_mgr->num_secure_contexts[hw_dev_type]) {
 			rc = cam_icp_validate_secure_port_config (hw_mgr, ctx_data);
 			if (rc)
@@ -9777,12 +9740,10 @@ static int cam_icp_mgr_cmd(void *hw_mgr_priv, void *cmd_args)
 		int                        i;
 
 		pf_cmd_args = hw_cmd_args->u.pf_cmd_args;
-		pf_cmd_args->pf_args->pf_pid_found_status = CAM_PF_PID_FOUND_FAILURE;
 		if (pf_cmd_args->pf_args->check_pid) {
 			for (i = 0; i < hw_mgr->num_pid; i++) {
 				if (pf_cmd_args->pf_args->pf_smmu_info->pid == hw_mgr->pid[i]) {
-					pf_cmd_args->pf_args->pf_pid_found_status
-							= CAM_PF_PID_FOUND_SUCCESS;
+					pf_cmd_args->pf_args->pid_found = true;
 					break;
 				}
 			}
