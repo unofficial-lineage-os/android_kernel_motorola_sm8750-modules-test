@@ -42,6 +42,13 @@
 #define RSCC_MODE_THRESHOLD_TIME_US 40
 #define DCS_COMMAND_THRESHOLD_TIME_US 40
 
+/*
+ * leap: Motorola touch drivers (touchscreen_mmi, CONFIG_DRM_DYNAMIC_REFRESH_RATE) register on this chain and switch
+ * their report rate to the panel refresh rate. Name, export and event match stock msm_drm.
+ */
+BLOCKING_NOTIFIER_HEAD(dsi_freq_head);
+EXPORT_SYMBOL(dsi_freq_head);
+
 static void dsi_dce_prepare_pps_header(char *buf, u32 pps_delay_ms)
 {
 	char *bp;
@@ -5621,6 +5628,11 @@ int dsi_panel_switch(struct dsi_panel *panel)
 		       panel->name, rc);
 
 	mutex_unlock(&panel->panel_lock);
+
+	/* leap: same place and payload as stock (after unlock, action = new refresh rate, data NULL) */
+	if (panel->cur_mode)
+		blocking_notifier_call_chain(&dsi_freq_head,
+				panel->cur_mode->timing.refresh_rate, NULL);
 	return rc;
 }
 
