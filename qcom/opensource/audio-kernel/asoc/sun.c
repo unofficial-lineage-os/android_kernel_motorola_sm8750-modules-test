@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2016-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022-2025, Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2024, Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include <linux/clk.h>
@@ -15,7 +15,6 @@
 #include <linux/input.h>
 #include <soc/qcom/socinfo.h>
 #include <linux/of_device.h>
-#include <linux/soc/qcom/fsa4480-i2c.h>
 #if IS_ENABLED(CONFIG_QCOM_WCD_USBSS_I2C)
 #include <linux/soc/qcom/wcd939x-i2c.h>
 #endif
@@ -81,9 +80,9 @@ struct msm_asoc_mach_data {
 	struct device_node *dmic23_gpio_p; /* used by pinctrl API */
 	struct device_node *dmic45_gpio_p; /* used by pinctrl API */
 	struct device_node *dmic67_gpio_p; /* used by pinctrl API */
+	struct device_node *dmic_micbias_gpio_p; /* used by pinctrl API */
 	struct pinctrl *usbc_en2_gpio_p; /* used by pinctrl API */
 	bool is_afe_config_done;
-	struct device_node *fsa_handle;
 	struct device_node *wcd_usbss_handle;
 	struct clk *lpass_audio_hw_vote;
 	int core_audio_vote_count;
@@ -96,6 +95,7 @@ struct msm_asoc_mach_data {
 	int wcd_used;
 };
 
+static int dmic_micbias_cnt;
 static bool is_initial_boot;
 static bool codec_reg_done;
 static struct snd_soc_card snd_soc_card_sun_msm;
@@ -148,25 +148,20 @@ static bool msm_usbc_swap_gnd_mic(struct snd_soc_component *component, bool acti
 	struct msm_asoc_mach_data *pdata =
 				snd_soc_card_get_drvdata(card);
 
-	if (!pdata->wcd_usbss_handle && !pdata->fsa_handle)
+	if (!pdata->wcd_usbss_handle)
 		return false;
 
-	if (pdata->fsa_handle) {
-		ret = fsa4480_switch_event(pdata->fsa_handle, FSA_MIC_GND_SWAP);
-	} else {
 #if IS_ENABLED(CONFIG_QCOM_WCD_USBSS_I2C)
-		if (wcd_mbhc_cfg.usbss_hsj_connect_enable)
-			ret = wcd_usbss_switch_update(WCD_USBSS_GND_MIC_SWAP_HSJ,
+	if (wcd_mbhc_cfg.usbss_hsj_connect_enable)
+		ret = wcd_usbss_switch_update(WCD_USBSS_GND_MIC_SWAP_HSJ,
 							WCD_USBSS_CABLE_CONNECT);
-		else if (wcd_mbhc_cfg.enable_usbc_analog)
-			ret = wcd_usbss_switch_update(WCD_USBSS_GND_MIC_SWAP_AATC,
+	else if (wcd_mbhc_cfg.enable_usbc_analog)
+		ret = wcd_usbss_switch_update(WCD_USBSS_GND_MIC_SWAP_AATC,
 							WCD_USBSS_CABLE_CONNECT);
-	}
-#endif
 	if (ret == 0)
 		return true;
-	else
-		return false;
+#endif
+	return false;
 }
 
 static void msm_parse_upd_configuration(struct platform_device *pdev,
@@ -383,6 +378,20 @@ static int msm_dmic_event(struct snd_soc_dapm_widget *w,
 
 	switch (event) {
 	case SND_SOC_DAPM_PRE_PMU:
+		if (pdata->dmic_micbias_gpio_p) {
+			dmic_micbias_cnt++;
+			dev_dbg(component->dev, "%s: dmic_micbias_cnt %d\n", __func__, dmic_micbias_cnt);
+			if (dmic_micbias_cnt == 1) {
+				dev_info(component->dev, "%s: enable micbias\n", __func__);
+				ret = msm_cdc_pinctrl_select_active_state(
+							pdata->dmic_micbias_gpio_p);
+				if (ret < 0) {
+					pr_err_ratelimited("%s: micbias gpio set cannot be activated %sd",
+						__func__, "pdata->dmic_micbias_gpio_p");
+					return ret;
+				}
+			}
+		}
 		(*dmic_gpio_cnt)++;
 		if (*dmic_gpio_cnt == 1) {
 			ret = msm_cdc_pinctrl_select_active_state(
@@ -396,6 +405,20 @@ static int msm_dmic_event(struct snd_soc_dapm_widget *w,
 
 		break;
 	case SND_SOC_DAPM_POST_PMD:
+		if (pdata->dmic_micbias_gpio_p) {
+			dmic_micbias_cnt--;
+			dev_dbg(component->dev, "%s: dmic_micbias_cnt %d\n", __func__, dmic_micbias_cnt);
+			if (dmic_micbias_cnt == 0) {
+				dev_info(component->dev, "%s: disable micbias\n", __func__);
+				ret = msm_cdc_pinctrl_select_sleep_state(
+							pdata->dmic_micbias_gpio_p);
+				if (ret < 0) {
+					pr_err_ratelimited("%s: micbias gpio set cannot be de-activated %sd",
+						__func__, "pdata->dmic_micbias_gpio_p");
+					return ret;
+				}
+			}
+		}
 		(*dmic_gpio_cnt)--;
 		if (*dmic_gpio_cnt == 0) {
 			ret = msm_cdc_pinctrl_select_sleep_state(
@@ -608,17 +631,6 @@ static struct snd_soc_dai_link msm_swr_haptics_be_dai_links[] = {
 		.ops = &msm_common_be_ops,
 		SND_SOC_DAILINK_REG(rx_dma_rx6),
 	},
-	{
-		.name = LPASS_BE_WSA_CDC_DMA_RX_4,
-		.stream_name = LPASS_BE_WSA_CDC_DMA_RX_4,
-		.playback_only = 1,
-		.trigger = {SND_SOC_DPCM_TRIGGER_POST,
-			SND_SOC_DPCM_TRIGGER_POST},
-		.ignore_pmdown_time = 1,
-		.ignore_suspend = 1,
-		.ops = &msm_common_be_ops,
-		SND_SOC_DAILINK_REG(wsa_dma_rx4),
-	},
 };
 
 #ifndef CONFIG_AUDIO_BTFM_PROXY
@@ -649,52 +661,28 @@ static struct snd_soc_dai_link msm_wcn_be_dai_links[] = {
 };
 #else
 static struct snd_soc_dai_link msm_wcn_be_dai_links[] = {
-	{
-		.name = LPASS_BE_BTFM_PROXY_RX_0,
-		.stream_name = LPASS_BE_BTFM_PROXY_RX_0,
-		.playback_only = 1,
-		.trigger = {SND_SOC_DPCM_TRIGGER_POST,
-			SND_SOC_DPCM_TRIGGER_POST},
-		.ops = &msm_common_be_ops,
-		/* dai link has playback support */
-		.ignore_pmdown_time = 1,
-		.ignore_suspend = 1,
-		SND_SOC_DAILINK_REG(btfm_0_rx),
-	},
-	{
-		.name = LPASS_BE_BTFM_PROXY_TX_0,
-		.stream_name = LPASS_BE_BTFM_PROXY_TX_0,
-		.capture_only = 1,
-		.trigger = {SND_SOC_DPCM_TRIGGER_POST,
-			SND_SOC_DPCM_TRIGGER_POST},
-		.ops = &msm_common_be_ops,
-		.ignore_suspend = 1,
-		SND_SOC_DAILINK_REG(btfm_0_tx),
-	},
-};
-static struct snd_soc_dai_link msm_wcn_be_dai_links_ext[] = {
-	{
-		.name = LPASS_BE_BTFM_PROXY_RX_1,
-		.stream_name = LPASS_BE_BTFM_PROXY_RX_1,
-		.playback_only = 1,
-		.trigger = {SND_SOC_DPCM_TRIGGER_POST,
-			SND_SOC_DPCM_TRIGGER_POST},
-		.ops = &msm_common_be_ops,
-		/* dai link has playback support */
-		.ignore_pmdown_time = 1,
-		.ignore_suspend = 1,
-		SND_SOC_DAILINK_REG(btfm_1_rx),
-	},
-	{
-		.name = LPASS_BE_BTFM_PROXY_TX_1,
-		.stream_name = LPASS_BE_BTFM_PROXY_TX_1,
-		.capture_only = 1,
-		.trigger = {SND_SOC_DPCM_TRIGGER_POST,
-			SND_SOC_DPCM_TRIGGER_POST},
-		.ops = &msm_common_be_ops,
-		.ignore_suspend = 1,
-		SND_SOC_DAILINK_REG(btfm_1_tx),
-	},
+        {
+                .name = LPASS_BE_BTFM_PROXY_RX_0,
+                .stream_name = LPASS_BE_BTFM_PROXY_RX_0,
+                .playback_only = 1,
+                .trigger = {SND_SOC_DPCM_TRIGGER_POST,
+                        SND_SOC_DPCM_TRIGGER_POST},
+                .ops = &msm_common_be_ops,
+                /* dai link has playback support */
+                .ignore_pmdown_time = 1,
+                .ignore_suspend = 1,
+                SND_SOC_DAILINK_REG(btfm_0_rx),
+        },
+        {
+                .name = LPASS_BE_BTFM_PROXY_TX_0,
+                .stream_name = LPASS_BE_BTFM_PROXY_TX_0,
+                .capture_only = 1,
+                .trigger = {SND_SOC_DPCM_TRIGGER_POST,
+                        SND_SOC_DPCM_TRIGGER_POST},
+                .ops = &msm_common_be_ops,
+                .ignore_suspend = 1,
+                SND_SOC_DAILINK_REG(btfm_0_tx),
+        },
 };
 #endif
 static struct snd_soc_dai_link ext_disp_be_dai_link[] = {
@@ -719,20 +707,6 @@ static struct snd_soc_dai_link ext_disp_be_dai_link[] = {
 		.ignore_pmdown_time = 1,
 		.ignore_suspend = 1,
 		SND_SOC_DAILINK_REG(display_port1),
-	},
-};
-
-static struct snd_soc_dai_link ext_hdmi_be_dai_link[] = {
-	/* DISP PORT BACK END DAI Link for DP0 */
-	{
-		.name = LPASS_BE_HDMI_RX_0,
-		.stream_name = LPASS_BE_HDMI_RX_0,
-		.playback_only = 1,
-		.trigger = {SND_SOC_DPCM_TRIGGER_POST,
-			SND_SOC_DPCM_TRIGGER_POST},
-		.ignore_pmdown_time = 1,
-		.ignore_suspend = 1,
-		SND_SOC_DAILINK_REG(hdmi_rx),
 	},
 };
 
@@ -1151,6 +1125,29 @@ static struct snd_soc_dai_link msm_mi2s_dai_links[] = {
 		.ignore_suspend = 1,
 		SND_SOC_DAILINK_REG(tert_mi2s_tx),
 	},
+#if IS_ENABLED(CONFIG_SND_SOC_TFA98XX)
+	{
+		.name = LPASS_BE_QUAT_MI2S_RX,
+		.stream_name = LPASS_BE_QUAT_MI2S_RX,
+		.playback_only = 1,
+		.trigger = {SND_SOC_DPCM_TRIGGER_POST,
+			SND_SOC_DPCM_TRIGGER_POST},
+		.ops = &msm_common_be_ops,
+		.ignore_suspend = 1,
+		.ignore_pmdown_time = 1,
+		SND_SOC_DAILINK_REG(quat_mi2s_rx_tfa98xx),
+	},
+	{
+		.name = LPASS_BE_QUAT_MI2S_TX,
+		.stream_name = LPASS_BE_QUAT_MI2S_TX,
+		.capture_only = 1,
+		.trigger = {SND_SOC_DPCM_TRIGGER_POST,
+			SND_SOC_DPCM_TRIGGER_POST},
+		.ops = &msm_common_be_ops,
+		.ignore_suspend = 1,
+		SND_SOC_DAILINK_REG(quat_mi2s_tx_tfa98xx),
+	},
+#else
 	{
 		.name = LPASS_BE_QUAT_MI2S_RX,
 		.stream_name = LPASS_BE_QUAT_MI2S_RX,
@@ -1172,6 +1169,7 @@ static struct snd_soc_dai_link msm_mi2s_dai_links[] = {
 		.ignore_suspend = 1,
 		SND_SOC_DAILINK_REG(quat_mi2s_tx),
 	},
+#endif
 	{
 		.name = LPASS_BE_QUIN_MI2S_RX,
 		.stream_name = LPASS_BE_QUIN_MI2S_RX,
@@ -1397,7 +1395,6 @@ static struct snd_soc_dai_link msm_sun_dai_links[
 			ARRAY_SIZE(msm_cdc_tx_va_dma_be_dai_links) +
 			ARRAY_SIZE(msm_cdc_qmp_dma_be_dai_links) +
 			ARRAY_SIZE(ext_disp_be_dai_link) +
-			ARRAY_SIZE(ext_hdmi_be_dai_link) +
 			ARRAY_SIZE(msm_common_be_dai_links) +
 			ARRAY_SIZE(msm_wcn_be_dai_links) +
 			ARRAY_SIZE(msm_swr_haptics_be_dai_links) +
@@ -1725,19 +1722,6 @@ static struct snd_soc_card *populate_snd_card_dailinks(struct device *dev, int w
 			}
 		}
 
-		rc = of_property_read_u32(dev->of_node,
-					   "qcom,ext-hdmi-audio-rx", &val);
-		if (!rc && val) {
-			if (!socinfo_get_part_info(PART_DISPLAY)) {
-				dev_dbg(dev, "%s(): ext hdmi audio support present\n",
-					__func__);
-				memcpy(msm_sun_dai_links + total_links,
-					ext_hdmi_be_dai_link,
-						sizeof(ext_hdmi_be_dai_link));
-				total_links += ARRAY_SIZE(ext_hdmi_be_dai_link);
-			}
-		}
-
 		rc = of_property_read_u32(dev->of_node, "qcom,wcn-bt", &val);
 		if (!rc && val) {
 			dev_dbg(dev, "%s(): WCN BT support present\n",
@@ -1746,16 +1730,6 @@ static struct snd_soc_card *populate_snd_card_dailinks(struct device *dev, int w
 			       msm_wcn_be_dai_links,
 			       sizeof(msm_wcn_be_dai_links));
 			total_links += ARRAY_SIZE(msm_wcn_be_dai_links);
-		}
-
-		rc = of_property_read_u32(dev->of_node, "qcom,wcn-bt-ext", &val);
-		if (!rc && val) {
-			dev_dbg(dev, "%s(): WCN BT EXT support present\n",
-				__func__);
-			memcpy(msm_sun_dai_links + total_links,
-			       msm_wcn_be_dai_links_ext,
-			       sizeof(msm_wcn_be_dai_links_ext));
-			total_links += ARRAY_SIZE(msm_wcn_be_dai_links_ext);
 		}
 
 		rc = of_property_read_u32(dev->of_node, "qcom,qmp-mic", &val);
@@ -2486,21 +2460,13 @@ static int msm_asoc_machine_probe(struct platform_device *pdev)
 	/* parse upd configuration */
 	msm_parse_upd_configuration(pdev, pdata);
 
-
-
-	pdata->fsa_handle = of_parse_phandle(pdev->dev.of_node,
-						"fsa4480-i2c-handle", 0);
-	if (!pdata->fsa_handle)
-		dev_dbg(&pdev->dev, "property %s not detected in node %s\n",
-			"fsa4480-i2c-handle", pdev->dev.of_node->full_name);
-
 	pdata->wcd_usbss_handle = of_parse_phandle(pdev->dev.of_node,
 						"wcd939x-i2c-handle", 0);
 	if (!pdata->wcd_usbss_handle)
 		dev_dbg(&pdev->dev, "property %s not detected in node %s\n",
 			"wcd939x-i2c-handle", pdev->dev.of_node->full_name);
 
-	if ((pdata->wcd_usbss_handle) || (pdata->fsa_handle))
+	if (pdata->wcd_usbss_handle)
 		wcd_mbhc_cfg.swap_gnd_mic = msm_usbc_swap_gnd_mic;
 
 	ret = devm_snd_soc_register_card(&pdev->dev, card);
@@ -2528,6 +2494,9 @@ static int msm_asoc_machine_probe(struct platform_device *pdev)
 	pdata->dmic67_gpio_p = of_parse_phandle(pdev->dev.of_node,
 					      "qcom,cdc-dmic67-gpios",
 					       0);
+	pdata->dmic_micbias_gpio_p = of_parse_phandle(pdev->dev.of_node,
+						  "qcom,dmic-micbias-en-gpio",
+						   0);
 	if (pdata->dmic01_gpio_p)
 		msm_cdc_pinctrl_set_wakeup_capable(pdata->dmic01_gpio_p, false);
 	if (pdata->dmic23_gpio_p)
@@ -2536,6 +2505,10 @@ static int msm_asoc_machine_probe(struct platform_device *pdev)
 		msm_cdc_pinctrl_set_wakeup_capable(pdata->dmic45_gpio_p, false);
 	if (pdata->dmic67_gpio_p)
 		msm_cdc_pinctrl_set_wakeup_capable(pdata->dmic67_gpio_p, false);
+	if (pdata->dmic_micbias_gpio_p) {
+		pr_info("%s: micbias gpio set\n", __func__);
+		msm_cdc_pinctrl_set_wakeup_capable(pdata->dmic_micbias_gpio_p, false);
+	}
 
 	msm_common_snd_init(pdev, card);
 

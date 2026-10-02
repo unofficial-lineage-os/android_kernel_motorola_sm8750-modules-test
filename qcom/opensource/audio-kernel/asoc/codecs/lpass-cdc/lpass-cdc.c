@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /* Copyright (c) 2018-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022-2025, Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2024, Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include <linux/of_platform.h>
@@ -469,14 +469,14 @@ void lpass_cdc_unregister_res_clk(struct device *dev)
 EXPORT_SYMBOL(lpass_cdc_unregister_res_clk);
 
 static u8 lpass_cdc_dmic_clk_div_get(struct snd_soc_component *component,
-				   u32 mode, u32 mic_pair)
+				   u32 mode)
 {
 	struct lpass_cdc_priv* priv = snd_soc_component_get_drvdata(component);
 	int macro = (mode ? VA_MACRO : TX_MACRO);
 	int ret = 0;
 
 	if (priv->macro_params[macro].clk_div_get) {
-		ret = priv->macro_params[macro].clk_div_get(component, mic_pair);
+		ret = priv->macro_params[macro].clk_div_get(component);
 		if (ret >= 0)
 			return ret;
 	}
@@ -491,12 +491,9 @@ int lpass_cdc_dmic_clk_enable(struct snd_soc_component *component,
 	u8  dmic_clk_en = 0x01;
 	u16 dmic_clk_reg = 0;
 	s32 *dmic_clk_cnt = NULL;
-	s32 *dmic_tx_clk_cnt = NULL;
-	s32 *dmic_va_clk_cnt = NULL;
 	u8 *dmic_clk_div = NULL;
 	u8 freq_change_mask = 0;
 	u8 clk_div = 0;
-	u32 mic_pair = 0;
 
 	dev_dbg(component->dev, "%s: enable: %d, tx_mode:%d, dmic: %d\n",
 		__func__, enable, tx_mode, dmic);
@@ -504,58 +501,43 @@ int lpass_cdc_dmic_clk_enable(struct snd_soc_component *component,
 	switch (dmic) {
 	case 0:
 	case 1:
-		dmic_va_clk_cnt = &(priv->dmic_0_1_va_clk_cnt);
-		dmic_tx_clk_cnt = &(priv->dmic_0_1_tx_clk_cnt);
-
+		dmic_clk_cnt = &(priv->dmic_0_1_clk_cnt);
 		dmic_clk_div = &(priv->dmic_0_1_clk_div);
 		dmic_clk_reg = LPASS_CDC_VA_TOP_CSR_DMIC0_CTL;
 		freq_change_mask = 0x01;
-		mic_pair = MIC_PAIR01;
 		break;
 	case 2:
 	case 3:
-		dmic_va_clk_cnt = &(priv->dmic_2_3_va_clk_cnt);
-		dmic_tx_clk_cnt = &(priv->dmic_2_3_tx_clk_cnt);
-
+		dmic_clk_cnt = &(priv->dmic_2_3_clk_cnt);
 		dmic_clk_div = &(priv->dmic_2_3_clk_div);
 		dmic_clk_reg = LPASS_CDC_VA_TOP_CSR_DMIC1_CTL;
 		freq_change_mask = 0x02;
-		mic_pair = MIC_PAIR23;
 		break;
 	case 4:
 	case 5:
-		dmic_va_clk_cnt = &(priv->dmic_4_5_va_clk_cnt);
-		dmic_tx_clk_cnt = &(priv->dmic_4_5_tx_clk_cnt);
-
+		dmic_clk_cnt = &(priv->dmic_4_5_clk_cnt);
 		dmic_clk_div = &(priv->dmic_4_5_clk_div);
 		dmic_clk_reg = LPASS_CDC_VA_TOP_CSR_DMIC2_CTL;
 		freq_change_mask = 0x04;
-		mic_pair = MIC_PAIR45;
 		break;
 	case 6:
 	case 7:
-		dmic_va_clk_cnt = &(priv->dmic_6_7_va_clk_cnt);
-		dmic_tx_clk_cnt = &(priv->dmic_6_7_tx_clk_cnt);
-
+		dmic_clk_cnt = &(priv->dmic_6_7_clk_cnt);
 		dmic_clk_div = &(priv->dmic_6_7_clk_div);
 		dmic_clk_reg = LPASS_CDC_VA_TOP_CSR_DMIC3_CTL;
 		freq_change_mask = 0x08;
-		mic_pair = MIC_PAIR67;
 		break;
 	default:
 		dev_err_ratelimited(component->dev, "%s: Invalid DMIC Selection\n",
 			__func__);
 		return -EINVAL;
 	}
-
-	dmic_clk_cnt = (tx_mode) ? dmic_va_clk_cnt : dmic_tx_clk_cnt;
-
-	dev_dbg(component->dev, "%s: DMIC%d dmic_clk_cnt %d mic_pair %d\n",
-			__func__, dmic, *dmic_clk_cnt, mic_pair);
+	dev_dbg(component->dev, "%s: DMIC%d dmic_clk_cnt %d\n",
+			__func__, dmic, *dmic_clk_cnt);
 	if (enable) {
-		clk_div = lpass_cdc_dmic_clk_div_get(component, tx_mode, mic_pair);
+		clk_div = lpass_cdc_dmic_clk_div_get(component, tx_mode);
 		(*dmic_clk_cnt)++;
-		if ((*dmic_va_clk_cnt + *dmic_tx_clk_cnt)  == 1) {
+		if (*dmic_clk_cnt == 1) {
 			snd_soc_component_update_bits(component,
 					LPASS_CDC_VA_TOP_CSR_DMIC_CFG,
 					0x80, 0x00);
@@ -580,17 +562,16 @@ int lpass_cdc_dmic_clk_enable(struct snd_soc_component *component,
 		*dmic_clk_div = clk_div;
 	} else {
 		(*dmic_clk_cnt)--;
-		if ((*dmic_va_clk_cnt + *dmic_tx_clk_cnt)  == 0) {
+		if (*dmic_clk_cnt  == 0) {
 			snd_soc_component_update_bits(component, dmic_clk_reg,
 					dmic_clk_en, 0);
 			clk_div = 0;
 			snd_soc_component_update_bits(component, dmic_clk_reg,
 							0x0E, clk_div << 0x1);
-		} else if (*dmic_clk_cnt == 0) {
-			clk_div = lpass_cdc_dmic_clk_div_get(component, !tx_mode, mic_pair);
-
-			if (*dmic_clk_div != clk_div) {
-			/* Reset the div factor corresponding to the enabled Macro/path. */
+		} else {
+			clk_div = lpass_cdc_dmic_clk_div_get(component, tx_mode);
+			if (*dmic_clk_div > clk_div) {
+				clk_div = lpass_cdc_dmic_clk_div_get(component, !tx_mode);
 				snd_soc_component_update_bits(component,
 							LPASS_CDC_VA_TOP_CSR_DMIC_CFG,
 							freq_change_mask, freq_change_mask);
@@ -599,6 +580,8 @@ int lpass_cdc_dmic_clk_enable(struct snd_soc_component *component,
 				snd_soc_component_update_bits(component,
 							LPASS_CDC_VA_TOP_CSR_DMIC_CFG,
 							freq_change_mask, 0x00);
+			} else {
+				clk_div = *dmic_clk_div;
 			}
 		}
 		*dmic_clk_div = clk_div;
@@ -1335,17 +1318,6 @@ static int regdump_read(struct regmap *map, int baseReg, int endReg,
 	/* Disable reading/writing from regmap-cache */
 	regcache_cache_bypass(map, true);
 	for (; i >= 0 && i <= endReg; i += REGDUMP_PRINT_STRIDE) {
-		/*
-		 * Check not to overwrite the buffer, by ensuring we have
-		 * space for writing the register data
-		 *
-		 * this is scalable if we use proc or any other fs interface
-		 * as count would take the buf_size passed from userspace
-		 */
-		if ((pos + regdump_wr_len) >= count) {
-			pr_debug("%s: Buffer full: stopping at register 0x%x\n", __func__, i);
-			break;
-		}
 
 		scnprintf(buf+pos, count-pos, "%.*x: ", reg_len, i);
 		pos += reg_len + 2;
@@ -1357,6 +1329,16 @@ static int regdump_read(struct regmap *map, int baseReg, int endReg,
 
 		pos +=  reg_val_len;
 		buf[pos++] = '\n';
+
+		/*
+		 * Check not to overwrite the buffer, by ensuring we have
+		 * space for writing next register data
+		 *
+		 * this is scalable if we use proc or any other fs interface
+		 * as count would take the buf_size passed from userspace
+		 */
+		if ((pos + regdump_wr_len) >= count)
+			break;
 	}
 	/* Enable reading/writing from regmap-cache */
 	regcache_cache_bypass(map, false);

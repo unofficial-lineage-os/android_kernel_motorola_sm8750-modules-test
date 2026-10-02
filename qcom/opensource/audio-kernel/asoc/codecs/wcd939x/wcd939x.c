@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2018-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+ * Copyright (c) 2022-2024, Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include <linux/module.h>
@@ -63,7 +63,6 @@
 #define WCD_USBSS_READ false
 #define WCD_USBSS_DP_EN 0x1E
 #define WCD_USBSS_DN_EN 0x21
-#define WCD_USBSS_FSM_OVERRIDE 0x63
 #define P_THRESH_SEL_MASK 0x0E
 #define P_THRESH_SEL_SHIFT 0x01
 #define VTH_4P0 0x04
@@ -270,8 +269,7 @@ static int wcd939x_hph_xtalk_put(struct snd_kcontrol *kcontrol,
 
 	int value = ucontrol->value.integer.value[0];
 
-	if (value < WCD939X_HPH_MAX && value >= 0 && xtalk < WCD939X_HPH_MAX &&
-			xtalk >= 0)
+	if (value < WCD939X_HPH_MAX && value >= 0)
 		wcd939x->xtalk_enabled[xtalk] = value;
 	else {
 		dev_err(component->dev, "%s: Invalid xtalk value = %d\n", __func__, value);
@@ -294,11 +292,6 @@ static int wcd939x_hph_xtalk_get(struct snd_kcontrol *kcontrol,
 
 	int xtalk = ((struct soc_mixer_control *)
 			kcontrol->private_value)->shift;
-
-	if (xtalk >= WCD939X_HPH_MAX || xtalk < 0) {
-		dev_err(component->dev, "%s: Invalid xtalk value = %d\n", __func__, xtalk);
-		return -EINVAL;
-	}
 
 	ucontrol->value.integer.value[0] = wcd939x->xtalk_enabled[xtalk];
 
@@ -999,17 +992,13 @@ static int wcd939x_config_compander(struct snd_soc_component *component,
 	if (!wcd939x->hph_pcm_enabled)
 		return 0;
 
-	dev_dbg(component->dev, "%s compander_enabled[%d]: %d\n", __func__,
-			compander_indx, wcd939x->compander_enabled[compander_indx]);
+	dev_dbg(component->dev, "%s compander_index = %d\n", __func__, compander_indx);
 
 	if (!wcd939x->compander_enabled[compander_indx]) {
-		gain_source_sel = 0x01;
-
-		/* gain setting to mixer control value (typically 0db) */
-		snd_soc_component_update_bits(component, WCD939X_PA_GAIN_CTL_L, 0x1F,
-				(snd_soc_component_read(component, WCD939X_PA_GAIN_CTL_L) & 0x1F));
-		snd_soc_component_update_bits(component, WCD939X_PA_GAIN_CTL_R, 0x1F,
-				(snd_soc_component_read(component, WCD939X_PA_GAIN_CTL_R) & 0x1F));
+		if (SND_SOC_DAPM_EVENT_ON(event))
+			gain_source_sel = 0x01;
+		else
+			gain_source_sel = 0x00;
 
 		if (compander_indx == WCD939X_HPHL) {
 			snd_soc_component_update_bits(component,
@@ -1020,16 +1009,6 @@ static int wcd939x_config_compander(struct snd_soc_component *component,
 		}
 		wcd939x_config_2Vpk_mode(component, wcd939x, SET_HPH_GAIN_2VPK);
 		return 0;
-	}
-
-	if (wcd939x->compander_enabled[compander_indx]) {
-		if (compander_indx == WCD939X_HPHL) {
-			snd_soc_component_update_bits(component,
-				REG_FIELD_VALUE(L_EN, GAIN_SOURCE_SEL, 0)); /* AUTO */
-		} else if (compander_indx == WCD939X_HPHR) {
-			snd_soc_component_update_bits(component,
-				REG_FIELD_VALUE(R_EN, GAIN_SOURCE_SEL, 0));
-		}
 	}
 
 	if (compander_indx == WCD939X_HPHL)
@@ -1062,23 +1041,16 @@ static int wcd939x_config_compander(struct snd_soc_component *component,
 				WCD939X_CDC_COMP_CTL_0, comp_en_mask_val, comp_en_mask_val);
 
 	} else if (SND_SOC_DAPM_EVENT_OFF(event)) {
-		/* disable both companders whichever(L/R) power down comes first */
-		snd_soc_component_update_bits(component,
-				WCD939X_CDC_COMP_CTL_0, 0x03, 0x00);
-
-		/* gain setting to 0db */
-		snd_soc_component_update_bits(component, WCD939X_PA_GAIN_CTL_L,
-				0x1F, 0x04);
-		snd_soc_component_update_bits(component, WCD939X_PA_GAIN_CTL_R,
-				0x1F, 0x04);
-
-		/* set gain source selection to REGISTER */
-		snd_soc_component_update_bits(component,
-				REG_FIELD_VALUE(L_EN, GAIN_SOURCE_SEL, 0x1)); /* REGISTER */
-		snd_soc_component_update_bits(component,
-				REG_FIELD_VALUE(R_EN, GAIN_SOURCE_SEL, 0x1)); /* REGISTER */
-
-		snd_soc_component_update_bits(component, comp_ctl0_reg, 0x03, 0x02);
+			snd_soc_component_update_bits(component,
+				WCD939X_CDC_COMP_CTL_0, comp_en_mask_val, 0x00);
+			snd_soc_component_update_bits(component,
+				comp_ctl0_reg , 0x01, 0x00);
+			if (compander_indx == WCD939X_HPHL)
+				snd_soc_component_update_bits(component,
+						REG_FIELD_VALUE(L_EN, GAIN_SOURCE_SEL, 0x0));
+			if (compander_indx == WCD939X_HPHR)
+				snd_soc_component_update_bits(component,
+						REG_FIELD_VALUE(R_EN, GAIN_SOURCE_SEL, 0x0));
 	}
 
 	return 0;
@@ -1571,8 +1543,7 @@ static int wcd939x_codec_enable_hphr_pa(struct snd_soc_dapm_widget *w,
 					REG_FIELD_VALUE(PDM_WD_CTL1, PDM_WD_EN, 0x00));
 #if IS_ENABLED(CONFIG_QCOM_WCD_USBSS_I2C)
 		if (wcd939x->mbhc->wcd_mbhc.mbhc_cfg->enable_usbc_analog &&
-			(!(snd_soc_component_read(component, WCD939X_HPH) & 0XC0)) &&
-			wcd939x->adc_count == 0)
+			!(snd_soc_component_read(component, WCD939X_HPH) & 0XC0))
 			wcd_usbss_audio_config(NULL, WCD_USBSS_CONFIG_TYPE_POWER_MODE, 1);
 #endif
 		wcd_cls_h_fsm(component, &wcd939x->clsh_info,
@@ -1727,8 +1698,7 @@ static int wcd939x_codec_enable_hphl_pa(struct snd_soc_dapm_widget *w,
 					REG_FIELD_VALUE(PDM_WD_CTL0, PDM_WD_EN, 0x00));
 #if IS_ENABLED(CONFIG_QCOM_WCD_USBSS_I2C)
 		if (wcd939x->mbhc->wcd_mbhc.mbhc_cfg->enable_usbc_analog &&
-			(!(snd_soc_component_read(component, WCD939X_HPH) & 0XC0)) &&
-			wcd939x->adc_count == 0)
+			!(snd_soc_component_read(component, WCD939X_HPH) & 0XC0))
 			wcd_usbss_audio_config(NULL, WCD_USBSS_CONFIG_TYPE_POWER_MODE, 1);
 #endif
 		wcd_cls_h_fsm(component, &wcd939x->clsh_info,
@@ -2446,12 +2416,6 @@ static int wcd939x_enable_req(struct snd_soc_dapm_widget *w,
 				REG_FIELD_VALUE(CDC_DIG_CLK_CTL, TXD0_CLK_EN, 0x01));
 			break;
 		case 1:
-#if IS_ENABLED(CONFIG_QCOM_WCD_USBSS_I2C)
-		/* update USBSS power mode for AATC */
-		if (wcd939x->mbhc->wcd_mbhc.mbhc_cfg->enable_usbc_analog)
-			wcd_usbss_audio_config(NULL, WCD_USBSS_CONFIG_TYPE_POWER_MODE,
-				4);
-#endif
 			snd_soc_component_update_bits(component,
 				WCD939X_CDC_TX_ANA_MODE_0_1, 0xF0,
 				mode << 4);
@@ -2511,12 +2475,6 @@ static int wcd939x_enable_req(struct snd_soc_dapm_widget *w,
 					REG_FIELD_VALUE(CDC_ANA_CLK_CTL, ANA_TX_DIV2_CLK_EN, 0x00));
 			snd_soc_component_update_bits(component,
 					REG_FIELD_VALUE(CDC_ANA_CLK_CTL, ANA_TX_CLK_EN, 0x00));
-#if IS_ENABLED(CONFIG_QCOM_WCD_USBSS_I2C)
-			if (wcd939x->mbhc->wcd_mbhc.mbhc_cfg->enable_usbc_analog &&
-				(!(snd_soc_component_read(component, WCD939X_HPH) & 0XC0)) &&
-				wcd939x->adc_count == 0)
-				wcd_usbss_audio_config(NULL, WCD_USBSS_CONFIG_TYPE_POWER_MODE, 1);
-#endif
 		}
 		break;
 	};
@@ -3255,11 +3213,6 @@ static int wcd939x_tx_mode_put(struct snd_kcontrol *kcontrol,
 		return ret;
 
 	mode_val = ucontrol->value.enumerated.item[0];
-	if (wcd939x->tx_mode[path] == ADC_MODE_HIFI && mode_val != ADC_MODE_INVALID) {
-		dev_dbg(component->dev, "%s: mode: %d not set, tx mode: %d retained for HDR\n",
-					__func__, mode_val, wcd939x->tx_mode[path]);
-		return 0;
-	}
 
 	dev_dbg(component->dev, "%s: mode: %d\n", __func__, mode_val);
 
@@ -4842,12 +4795,7 @@ static struct snd_soc_component_driver soc_codec_dev_wcd939x = {
 static void wcd_usbss_set_ovp_threshold(u32 threshold)
 {
 	uint32_t ovp_regs[2][2] = {{WCD_USBSS_DP_EN, 0x00}, {WCD_USBSS_DN_EN, 0x00}};
-	uint32_t fsm_4p0_regs[][2] = { {WCD_USBSS_FSM_OVERRIDE, 0x77} };
-	uint32_t fsm_4p2_regs[][2] = { {WCD_USBSS_FSM_OVERRIDE, 0x7f} };
 
-	if (threshold == VTH_4P0)
-		wcd_usbss_register_update(fsm_4p0_regs, WCD_USBSS_WRITE,
-					ARRAY_SIZE(fsm_4p0_regs));
 	/* Get current register values */
 	wcd_usbss_register_update(ovp_regs, WCD_USBSS_READ, ARRAY_SIZE(ovp_regs));
 	/* Overwrite OVP tresholds */
@@ -4857,9 +4805,6 @@ static void wcd_usbss_set_ovp_threshold(u32 threshold)
 	ovp_regs[1][1] |= (threshold << P_THRESH_SEL_SHIFT);
 	/* Write updated register values */
 	wcd_usbss_register_update(ovp_regs, WCD_USBSS_WRITE, ARRAY_SIZE(ovp_regs));
-	if (threshold == VTH_4P2)
-		wcd_usbss_register_update(fsm_4p2_regs, WCD_USBSS_WRITE,
-					ARRAY_SIZE(fsm_4p2_regs));
 }
 #endif
 
@@ -5699,7 +5644,7 @@ static int wcd939x_probe(struct platform_device *pdev)
 		if (ret) {
 			dev_err(dev, "%s: vdd px supply enable failed!\n",
 				__func__);
-			goto err_static_supplies;
+			return ret;
 		}
 	}
 
@@ -5710,13 +5655,13 @@ static int wcd939x_probe(struct platform_device *pdev)
 
 	if (ret) {
 		dev_err(dev, "Failed to read port mapping\n");
-		goto err_supplies;
+		goto err;
 	}
 	ret = wcd939x_parse_port_params(dev, "qcom,swr-tx-port-params",
 					CODEC_TX);
 	if (ret) {
 		dev_err(dev, "Failed to read port params\n");
-		goto err_supplies;
+		goto err;
 	}
 
 	mutex_init(&wcd939x->wakeup_lock);
@@ -5739,19 +5684,7 @@ static int wcd939x_probe(struct platform_device *pdev)
 err_lock_init:
 	mutex_destroy(&wcd939x->micb_lock);
 	mutex_destroy(&wcd939x->wakeup_lock);
-err_supplies:
-	if (msm_cdc_is_ondemand_supply(wcd939x->dev, wcd939x->supplies,
-			pdata->regulator, pdata->num_supplies, "cdc-vdd-px")) {
-		msm_cdc_disable_ondemand_supply(wcd939x->dev,
-				wcd939x->supplies, pdata->regulator,
-				pdata->num_supplies, "cdc-vdd-px");
-	}
-err_static_supplies:
-	msm_cdc_release_supplies(&pdev->dev, wcd939x->supplies,
-				     pdata->regulator,
-				     pdata->num_supplies);
-	pdata->regulator = NULL;
-	pdata->num_supplies = 0;
+err:
 	return ret;
 }
 

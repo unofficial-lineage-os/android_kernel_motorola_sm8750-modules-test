@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2015-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022-2025 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include <linux/irq.h>
@@ -100,10 +100,6 @@
 #define SAMPLING_RATE_384KHZ  384000
 
 #define SWR_BASECLK_VAL_1_FOR_19P2MHZ  (0x1)
-#define SWRS_DEVID_COMBINE(cls_id, addr_id)	\
-			(((long)(cls_id) << 32) | (addr_id))
-#define WCD9378_TX_DEVID (0x1001170223)
-#define WCD9378_RX_DEVID (0x1001170224)
 
 /* pm runtime auto suspend timer in msecs */
 static int auto_suspend_timer = 500;
@@ -1535,7 +1531,10 @@ static void swrm_get_device_frame_shape(struct swr_mstr_ctrl *swrm,
 	} else if (swrm->master_id == MASTER_ID_BT) {
 		port_req->sinterval =
 				((swrm->bus_clk * 2) / port_req->ch_rate) - 1;
-		port_req->offset1 = mport->offset1;
+		if (mport->dir == 0)
+			port_req->offset1 = 0;
+		else
+			port_req->offset1 = 0x14;
 		port_req->offset2 = 0x00;
 		port_req->hstart = 1;
 		port_req->hstop = 0xF;
@@ -1896,21 +1895,17 @@ static void swrm_apply_port_config(struct swr_master *master)
 /* also, if the device enumerates on the bus when active bank is 1, issue bank switch */
 static void swrm_initialize_clk_base_scale(struct swr_mstr_ctrl *swrm, u8 dev_num)
 {
-	int clk_scale = 0, n_row = 0, n_col = 0;
-	int cls_id = 0, addr_id = 0;
-	long dev_id = 0;
-	int frame_shape = 0;
-	u8 active_bank = 0;
+	int clk_scale, n_row, n_col;
+	int cls_id;
+	int frame_shape;
+	u8 active_bank;
 
 	if (dev_num == 0)
 		return;
 
 	cls_id = swr_master_read(swrm, SWRM_ENUMERATOR_SLAVE_DEV_ID_2(dev_num));
-	addr_id = swr_master_read(swrm, SWRM_ENUMERATOR_SLAVE_DEV_ID_1(dev_num));
-	dev_id = SWRS_DEVID_COMBINE(cls_id, addr_id);
+	if (cls_id & 0xFF00) {
 
-	if ((cls_id & 0xFF00) ||
-		(dev_id == WCD9378_TX_DEVID || dev_id == WCD9378_RX_DEVID)) {
 		active_bank = get_active_bank_num(swrm);
 		if (active_bank != 0) {
 			frame_shape = swr_master_read(swrm, SWRM_MCP_FRAME_CTRL_BANK(active_bank));
@@ -1934,6 +1929,7 @@ static void swrm_initialize_clk_base_scale(struct swr_mstr_ctrl *swrm, u8 dev_nu
 	}
 }
 
+#define SLAVE_DEV_CLASS_ID  GENMASK(45, 40)
 static int swrm_update_clk_base_and_scale(struct swr_master *master, u8 inactive_bank)
 {
 	struct swr_device *swr_dev;
@@ -1946,7 +1942,8 @@ static int swrm_update_clk_base_and_scale(struct swr_master *master, u8 inactive
 		if (swr_dev->dev_num == 0)
 			continue;
 
-		if (!swr_dev->paging_support)
+		/* check class_id if 1 */
+		if (!(swr_dev->addr & SLAVE_DEV_CLASS_ID))
 			continue;
 
 		/* v1.2 slave could be attached to the bus */
@@ -2094,7 +2091,6 @@ static int swrm_slvdev_datapath_control(struct swr_master *master, bool enable)
 	swrm_update_clk_base_and_scale(master, bank);
 	enable_bank_switch(swrm, bank, n_row, n_col);
 	inactive_bank = bank ? 0 : 1;
-	swrm_update_clk_base_and_scale(master, inactive_bank);
 
 	if (enable)
 		swrm_copy_data_port_config(master, inactive_bank);
@@ -2374,26 +2370,6 @@ static int swrm_check_slave_change_status(struct swr_mstr_ctrl *swrm,
 	return ret;
 }
 
-static u64 swrm_read_scp_registers(struct swr_mstr_ctrl *swrm, u8 dev_num, const char *func)
-{
-
-	u32 temp, i;
-	u64 dev_id = 0;
-
-	if (swrm->master_id != MASTER_ID_WSA2)
-		return 0;
-
-	for (i = 0; i < 6; i++) {
-		swrm_cmd_fifo_rd_cmd(swrm, &temp, dev_num,
-				get_cmd_id(swrm), (SWRS_SCP_DEVICE_ID_0 + i), 1);
-		dev_id |= ((u64)(temp & 0xFF)) << (i * 0x8);
-		dev_dbg(swrm->dev, "%s: SWRS_SCP_DEVICE_ID_%d val = 0x%x\n", func, i, temp);
-	}
-
-	dev_dbg(swrm->dev, "%s: Dev ID from slv %d scp registers 0x%llx\n", func, dev_num, dev_id);
-	return dev_id;
-}
-
 static void swrm_process_change_enum_slave_status(struct swr_mstr_ctrl *swrm)
 {
 	u32 status, chg_sts, i;
@@ -2429,7 +2405,7 @@ static void swrm_process_change_enum_slave_status(struct swr_mstr_ctrl *swrm)
 	}
 
 	num_enum_devs = 0;
-	memset(enum_devnum, 0, (SWR_MAX_DEV_NUM * 2 * sizeof(u8)));
+	memset(enum_devnum, 0, sizeof(SWR_MAX_DEV_NUM * 2 * sizeof(u8)));
 	chg_sts = swrm_check_slave_change_status(swrm, enum_devnum, &num_enum_devs);
 
 	if (num_enum_devs == 0)
@@ -2827,26 +2803,21 @@ static int swrm_get_logical_dev_num(struct swr_master *mstr, u64 dev_id,
 					SWRM_ENUMERATOR_SLAVE_DEV_ID_1(i));
 
 		dev_dbg(swrm->dev, "%s: dev (num, address) (%d, 0x%llx)\n", __func__, i, id);
-
 		/*
 		 * As pm_runtime_get_sync() brings all slaves out of reset
 		 * update logical device number for all slaves.
 		 */
 		list_for_each_entry(swr_dev, &mstr->devices, dev_list) {
-			if (swr_dev->addr == (id & SWR_DEV_ID_MASK) ||
-			    swrm_read_scp_registers(swrm, i, __func__) == swr_dev->addr) {
-
+			if (swr_dev->addr == (id & SWR_DEV_ID_MASK)) {
 				u32 status = swrm_get_device_status(swrm, i);
 
 				if ((status == 0x01) || (status == 0x02)) {
 					swr_dev->dev_num = i;
-					if ((id & SWR_DEV_ID_MASK) == dev_id ||
-					     swrm_read_scp_registers(swrm, i, __func__) == dev_id) {
-
+					if ((id & SWR_DEV_ID_MASK) == dev_id) {
 						*dev_num = i;
 						sdev = swr_dev;
 						ret = 0;
-						dev_dbg(swrm->dev,
+						dev_info(swrm->dev,
 							"%s: devnum %d assigned for dev %llx\n",
 							__func__, i,
 							swr_dev->addr);
@@ -3391,8 +3362,8 @@ static int swrm_probe(struct platform_device *pdev)
 
 		if (swrm->master_id == MASTER_ID_TX || swrm->master_id == MASTER_ID_BT) {
 			swrm->mport_cfg[i].sinterval = 0xFFFF;
-			if (swrm->master_id == MASTER_ID_BT)
-				swrm->mport_cfg[i].offset1 = i * 0x14;
+			if (swrm->master_id == MASTER_ID_BT && i > 3)
+				swrm->mport_cfg[i].offset1 = 0x14;
 			else
 				swrm->mport_cfg[i].offset1 = 0x00;
 			swrm->mport_cfg[i].offset2 = 0x00;

@@ -45,18 +45,6 @@ SND_SOC_DAILINK_DEFS(btfm_0_tx,
 			"btaudio_tx")),
 	DAILINK_COMP_ARRAY(COMP_PLATFORM("snd-soc-dummy")));
 
-SND_SOC_DAILINK_DEFS(btfm_1_rx,
-	DAILINK_COMP_ARRAY(COMP_CPU("snd-soc-dummy-dai")),
-	DAILINK_COMP_ARRAY(COMP_CODEC("btfmcodec_dev",
-			"btaudio_rx2")),
-	DAILINK_COMP_ARRAY(COMP_PLATFORM("snd-soc-dummy")));
-
-SND_SOC_DAILINK_DEFS(btfm_1_tx,
-	DAILINK_COMP_ARRAY(COMP_CPU("snd-soc-dummy-dai")),
-	DAILINK_COMP_ARRAY(COMP_CODEC("btfmcodec_dev",
-			"btaudio_tx2")),
-	DAILINK_COMP_ARRAY(COMP_PLATFORM("snd-soc-dummy")));
-
 SND_SOC_DAILINK_DEFS(display_port,
 	DAILINK_COMP_ARRAY(COMP_CPU("snd-soc-dummy-dai")),
 	DAILINK_COMP_ARRAY(COMP_CODEC(
@@ -69,13 +57,6 @@ SND_SOC_DAILINK_DEFS(display_port1,
 	DAILINK_COMP_ARRAY(COMP_CODEC(
 			"soc:qcom,msm-ext-disp:qcom,msm-ext-disp-audio-codec-rx",
 			"msm_dp_audio_codec_rx1_dai")),
-	DAILINK_COMP_ARRAY(COMP_PLATFORM("snd-soc-dummy")));
-
-SND_SOC_DAILINK_DEFS(hdmi_rx,
-	DAILINK_COMP_ARRAY(COMP_CPU("snd-soc-dummy-dai")),
-	DAILINK_COMP_ARRAY(COMP_CODEC(
-			"soc:qcom,msm-ext-disp:qcom,msm-ext-disp-audio-codec-rx",
-			"msm_hdmi_audio_codec_rx_dai")),
 	DAILINK_COMP_ARRAY(COMP_PLATFORM("snd-soc-dummy")));
 
 SND_SOC_DAILINK_DEFS(auxpcm_rx,
@@ -318,6 +299,18 @@ SND_SOC_DAILINK_DEFS(tert_mi2s_tx,
 	DAILINK_COMP_ARRAY(COMP_CPU("snd-soc-dummy-dai")),
 	DAILINK_COMP_ARRAY(COMP_CODEC("msm-stub-codec.1", "msm-stub-tx")),
 	DAILINK_COMP_ARRAY(COMP_PLATFORM("snd-soc-dummy")));
+
+SND_SOC_DAILINK_DEFS(quat_mi2s_rx_tfa98xx,
+       DAILINK_COMP_ARRAY(COMP_CPU("snd-soc-dummy-dai")),
+       DAILINK_COMP_ARRAY(COMP_CODEC("tfa98xx-0034", "tfa98xx-aif-34"),
+                          COMP_CODEC("tfa98xx-0035", "tfa98xx-aif-35")),
+       DAILINK_COMP_ARRAY(COMP_PLATFORM("snd-soc-dummy")));
+
+SND_SOC_DAILINK_DEFS(quat_mi2s_tx_tfa98xx,
+       DAILINK_COMP_ARRAY(COMP_CPU("snd-soc-dummy-dai")),
+       DAILINK_COMP_ARRAY(COMP_CODEC("tfa98xx-0034", "tfa98xx-aif-34"),
+                          COMP_CODEC("tfa98xx-0035", "tfa98xx-aif-35")),
+DAILINK_COMP_ARRAY(COMP_PLATFORM("snd-soc-dummy")));
 
 SND_SOC_DAILINK_DEFS(quat_mi2s_rx,
 	DAILINK_COMP_ARRAY(COMP_CPU("snd-soc-dummy-dai")),
