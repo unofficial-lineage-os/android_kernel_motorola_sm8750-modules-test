@@ -118,6 +118,8 @@ USE_TARGET_PRODUCT := $(strip $(subst _factory,, $(TARGET_PRODUCT)))
 else
 USE_TARGET_PRODUCT := $(TARGET_PRODUCT)
 endif
+# leap: LineageOS products are named lineage_<device>; match the device name like Motorola's build does
+USE_TARGET_PRODUCT := $(patsubst lineage_%,%,$(USE_TARGET_PRODUCT))
 
 ifneq ($(filter oneli, $(USE_TARGET_PRODUCT)), )
         EXTRA_CFLAGS += -DPRODUCT_ONELI
