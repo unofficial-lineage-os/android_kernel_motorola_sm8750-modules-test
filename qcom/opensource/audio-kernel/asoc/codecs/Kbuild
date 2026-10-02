@@ -225,6 +225,7 @@ endif
 
 ifdef CONFIG_SND_SOC_MSM_HDMI_CODEC_RX
 	HDMICODEC_OBJS += msm_hdmi_codec_rx.o
+CFLAGS_msm_hdmi_codec_rx.o += -I$(AUDIO_ROOT)/../mm-drivers/msm_ext_display/include   # leap (ported from LOS oneplus copy)
 endif
 
 ifdef CONFIG_SND_SOC_WCD_IRQ
@@ -285,7 +286,8 @@ ifeq ($(KERNEL_BUILD), 1)
 	obj-y	+= wsa883x/
 	obj-y	+= rouleur/
 	obj-y	+= tfa98xx/
-	obj-y	+= ./
+	obj-y	+= qmp1000/
+	# leap: "obj-y += ./" recursed forever under kbuild (fine under Motorola's bazel wrapper) — dropped
 endif
 # Module information used by KBuild framework
 obj-$(CONFIG_WCD9XXX_CODEC_CORE) += wcd_core_dlkm.o
