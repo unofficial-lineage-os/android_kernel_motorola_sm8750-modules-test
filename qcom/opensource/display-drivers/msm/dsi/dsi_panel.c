@@ -4,7 +4,9 @@
  * Copyright (c) 2016-2021, The Linux Foundation. All rights reserved.
  */
 
+#include <linux/moduleparam.h>
 #include <linux/notifier.h>
+#include <linux/workqueue.h>
 #include <linux/delay.h>
 #include <linux/slab.h>
 #include <linux/gpio.h>
@@ -41,6 +43,18 @@
 #define MIN_PREFILL_LINES      40
 #define RSCC_MODE_THRESHOLD_TIME_US 40
 #define DCS_COMMAND_THRESHOLD_TIME_US 40
+
+/* leap: panel idle tunables, see dsi_panel_idle_work() */
+static int panel_idle = 1;
+module_param(panel_idle, int, 0644);
+MODULE_PARM_DESC(panel_idle, "1 Hz panel self-refresh when idle: 0 off, 1 primary panel, 2 all panels");
+static unsigned int panel_idle_delay_ms = 1000;
+module_param(panel_idle_delay_ms, uint, 0644);
+MODULE_PARM_DESC(panel_idle_delay_ms, "time without frames or backlight changes before panel idle");
+static unsigned int panel_idle_min_bl = 1700;
+module_param(panel_idle_min_bl, uint, 0644);
+MODULE_PARM_DESC(panel_idle_min_bl, "lowest backlight level for panel idle (low-frequency flicker)");
+#define DSI_PANEL_IDLE_LOG	32	/* log the first transitions at info level */
 
 /*
  * leap: Motorola touch drivers (touchscreen_mmi, CONFIG_DRM_DYNAMIC_REFRESH_RATE) register on this chain and switch
@@ -4220,6 +4234,147 @@ static int dsi_panel_tx_named_cmd_set(struct dsi_panel *panel, struct dsi_panel_
 }
 
 /*
+ * leap: panel idle. Motorola's panels self-refresh from their frame memory at 1 Hz (or 10 Hz) once sent the
+ * timing-switch set of the DT's special-idle timing node (Novatek low-frequency drive, 2Fh=30h + 6Dh level).
+ * Stock lets Motorola's SurfaceFlinger select that node as a "mode"; AOSP's cannot, so the kernel enters it after
+ * panel_idle_delay_ms without a frame or backlight change and leaves it before the next one by re-sending the
+ * current mode's own set. Only from 120 Hz-based modes, never in AOD, DC dimming or HBM, and not below
+ * panel_idle_min_bl (stock: 10 nits inner; ~1700 on the framework's nits curve).
+ */
+static bool dsi_panel_idle_enabled(struct dsi_panel *panel)
+{
+	int mode = READ_ONCE(panel_idle);
+
+	return READ_ONCE(panel->idle.target) &&
+		(mode == 2 || (mode == 1 && panel->type && !strcmp(panel->type, "primary")));
+}
+
+/* caller holds panel_lock */
+static bool dsi_panel_idle_allowed(struct dsi_panel *panel)
+{
+	struct dsi_display_mode *mode = panel->cur_mode;
+
+	return dsi_panel_idle_enabled(panel) && dsi_panel_initialized(panel) && !panel->idle.suspended &&
+		!atomic_read(&panel->esd_recovery_pending) && !panel->dc_state && panel->hbm_applied != 1 &&
+		mode && mode->priv_info && (mode->priv_info->framerate_group & DSI_FRG_120HZ_BASED) &&
+		mode->priv_info->cmd_sets[DSI_CMD_SET_TIMING_SWITCH].count &&
+		panel->bl_config.bl_level >= READ_ONCE(panel_idle_min_bl);
+}
+
+/* caller holds panel_lock */
+static void dsi_panel_idle_exit_locked(struct dsi_panel *panel)
+{
+	int rc;
+
+	if (!panel->idle.active)
+		return;
+	WRITE_ONCE(panel->idle.active, false);
+	rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_SET_TIMING_SWITCH, false);
+	panel->idle.exits++;
+	if (rc || panel->idle.exits <= DSI_PANEL_IDLE_LOG)
+		DSI_INFO("[%s] panel idle exit #%u, rc=%d\n", panel->name, panel->idle.exits, rc);
+}
+
+static void dsi_panel_idle_work(struct work_struct *work)
+{
+	struct dsi_panel *panel = container_of(to_delayed_work(work), struct dsi_panel, idle.work);
+	struct dsi_panel_idle *idle = &panel->idle;
+	unsigned long due;
+	int seq, rc;
+
+	mutex_lock(&panel->panel_lock);
+	seq = atomic_read(&idle->kick_seq);
+	if (idle->active || !dsi_panel_idle_allowed(panel))
+		goto out;	/* the next kick re-arms us */
+	due = READ_ONCE(idle->last_kick) + msecs_to_jiffies(READ_ONCE(panel_idle_delay_ms));
+	if (time_before(jiffies, due)) {
+		mod_delayed_work(system_unbound_wq, &idle->work, due - jiffies);
+		goto out;
+	}
+
+	/* pairs with dsi_panel_idle_kick(): either we see its kick here, or it sees active and waits for the lock */
+	WRITE_ONCE(idle->active, true);
+	smp_mb();
+	if (atomic_read(&idle->kick_seq) != seq) {
+		WRITE_ONCE(idle->active, false);
+		goto out;
+	}
+
+	rc = dsi_panel_tx_named_cmd_set(panel, idle->target);
+	if (rc)
+		WRITE_ONCE(idle->active, false);
+	idle->entries++;
+	if (rc || idle->entries <= DSI_PANEL_IDLE_LOG)
+		DSI_INFO("[%s] panel idle enter #%u (%u Hz, bl %u), rc=%d\n", panel->name, idle->entries,
+				idle->target_hz, panel->bl_config.bl_level, rc);
+out:
+	mutex_unlock(&panel->panel_lock);
+}
+
+/* leap: before every frame kickoff and backlight change; must not be called with panel_lock held */
+void dsi_panel_idle_kick(struct dsi_panel *panel)
+{
+	struct dsi_panel_idle *idle;
+
+	if (!panel || !READ_ONCE(panel->idle.target))
+		return;
+
+	idle = &panel->idle;
+	WRITE_ONCE(idle->last_kick, jiffies);
+	atomic_inc(&idle->kick_seq);
+	smp_mb__after_atomic();
+	if (READ_ONCE(idle->active)) {
+		mutex_lock(&panel->panel_lock);
+		dsi_panel_idle_exit_locked(panel);
+		mutex_unlock(&panel->panel_lock);
+	}
+	if (dsi_panel_idle_enabled(panel))
+		queue_delayed_work(system_unbound_wq, &idle->work,
+				msecs_to_jiffies(READ_ONCE(panel_idle_delay_ms)));
+}
+
+/* leap: the mode list was built (modes) or is about to be freed (NULL) */
+void dsi_panel_idle_set_target(struct dsi_panel *panel, struct dsi_display_mode *modes, u32 count)
+{
+	struct dsi_panel_cmd_set *target = NULL;
+	u32 i, hz = 0;
+
+	if (!panel)
+		return;
+
+	for (i = 0; modes && i < count; i++) {
+		struct dsi_display_mode_priv_info *priv = modes[i].priv_info;
+
+		if (!priv || !priv->cmd_sets[DSI_CMD_SET_TIMING_SWITCH].count)
+			continue;
+		if (priv->framerate_group & DSI_FRG_SPECIAL_IDLE_1HZ) {
+			target = &priv->cmd_sets[DSI_CMD_SET_TIMING_SWITCH];
+			hz = 1;
+			break;
+		}
+		if (!target && (priv->framerate_group & DSI_FRG_SPECIAL_IDLE_10HZ)) {
+			target = &priv->cmd_sets[DSI_CMD_SET_TIMING_SWITCH];
+			hz = 10;
+		}
+	}
+
+	mutex_lock(&panel->panel_lock);
+	WRITE_ONCE(panel->idle.active, false);
+	panel->idle.target_hz = hz;
+	WRITE_ONCE(panel->idle.target, target);
+	mutex_unlock(&panel->panel_lock);
+
+	if (!target) {
+		cancel_delayed_work_sync(&panel->idle.work);
+		return;
+	}
+	DSI_INFO("[%s] %s panel: panel idle at %u Hz %s (delay %u ms, min bl %u)\n", panel->name,
+			panel->type ? panel->type : "?", hz,
+			dsi_panel_idle_enabled(panel) ? "enabled" : "disabled",
+			READ_ONCE(panel_idle_delay_ms), READ_ONCE(panel_idle_min_bl));
+}
+
+/*
  * leap: the hbm-on set writes 5Fh=1 and the HBM DBV (51h); while it is applied dsi_panel_set_backlight() only
  * records levels. The hbm-off set writes 5Fh=0 and a fixed DBV, so the recorded level is restored afterwards, as
  * stock does. Caller holds panel_lock.
@@ -4252,6 +4407,7 @@ static int dsi_panel_set_hbm(struct dsi_panel *panel, u32 value)
 	value = value ? 1 : 0;
 	mutex_lock(&panel->panel_lock);
 	panel->hbm_state = value;
+	dsi_panel_idle_exit_locked(panel);
 	if (!dsi_panel_initialized(panel) || dsi_panel_is_lp(panel) ||
 	    panel->hbm_applied == (int)value)
 		goto out;	/* dsi_panel_enable() / dsi_panel_set_nolp() apply it */
@@ -4277,6 +4433,7 @@ int dsi_panel_set_param(struct dsi_panel *panel, u32 param_id, u32 value)
 	value = value ? 1 : 0;
 	mutex_lock(&panel->panel_lock);
 	panel->dc_state = value;
+	dsi_panel_idle_exit_locked(panel);
 	if (!dsi_panel_initialized(panel) || panel->dc_applied == (int)value)
 		goto out;	/* off panels pick the state up in dsi_panel_enable() */
 
@@ -4312,6 +4469,7 @@ struct dsi_panel *dsi_panel_get(struct device *parent,
 	panel->panel_of_node = of_node;
 	panel->parent = parent;
 	panel->type = type;
+	INIT_DELAYED_WORK(&panel->idle.work, dsi_panel_idle_work);	/* leap: panel idle */
 
 	dsi_panel_update_util(panel, parser_node);
 	utils = &panel->utils;
@@ -4483,6 +4641,7 @@ void dsi_panel_put(struct dsi_panel *panel)
 	dsi_panel_esd_config_deinit(&panel->esd_config);
 
 	kfree(panel->avr_caps.avr_step_fps_list);
+	cancel_delayed_work_sync(&panel->idle.work);
 	dsi_panel_free_dc_cmds(panel);
 	dsi_panel_free_hbm_cmds(panel);
 	kfree(panel);
@@ -4893,6 +5052,29 @@ void dsi_panel_calc_dsi_transfer_time(struct dsi_host_common_cfg *config,
 }
 
 
+/* leap: Motorola marks each timing node with qcom,framerate-group-* booleans (stock dsi_panel_get_mode) */
+static u32 dsi_panel_parse_framerate_group(struct dsi_parser_utils *utils)
+{
+	static const struct {
+		const char *prop;
+		u32 flag;
+	} groups[] = {
+		{ "qcom,framerate-group-no-duplicated", DSI_FRG_NO_DUPLICATED },
+		{ "qcom,framerate-group-120hz-based", DSI_FRG_120HZ_BASED },
+		{ "qcom,framerate-group-90hz-based", DSI_FRG_90HZ_BASED },
+		{ "qcom,framerate-group-special-idle-1hz", DSI_FRG_SPECIAL_IDLE_1HZ },
+		{ "qcom,framerate-group-special-idle-10hz", DSI_FRG_SPECIAL_IDLE_10HZ },
+		{ "qcom,framerate-group-partition-refreshrate", DSI_FRG_PARTITION_REFRESH },
+		{ "qcom,framerate-group-partition-refreshrate-lowpower", DSI_FRG_PARTITION_REFRESH_LP },
+	};
+	u32 i, group = 0;
+
+	for (i = 0; i < ARRAY_SIZE(groups); i++)
+		if (utils->read_bool(utils->data, groups[i].prop))
+			group |= groups[i].flag;
+	return group;
+}
+
 int dsi_panel_get_mode(struct dsi_panel *panel,
 			u32 index, struct dsi_display_mode *mode,
 			int topology_override)
@@ -5022,6 +5204,8 @@ int dsi_panel_get_mode(struct dsi_panel *panel,
 		rc = dsi_panel_parse_partial_update_caps(mode, utils);
 		if (rc)
 			DSI_ERR("failed to partial update caps, rc=%d\n", rc);
+
+		prv_info->framerate_group = dsi_panel_parse_framerate_group(utils);	/* leap */
 	}
 
 parse_fail:
@@ -5241,6 +5425,10 @@ int dsi_panel_set_lp1(struct dsi_panel *panel)
 	if (!panel->panel_initialized)
 		goto exit;
 
+	/* leap: no panel idle in AOD; enter it from the current mode's refresh, as without idle */
+	dsi_panel_idle_exit_locked(panel);
+	panel->idle.suspended = true;
+
 	/* leap: AOD never runs in HBM; dsi_panel_set_nolp() re-applies it */
 	if (panel->hbm_applied == 1)
 		dsi_panel_apply_hbm(panel, 0);
@@ -5278,6 +5466,8 @@ int dsi_panel_set_lp2(struct dsi_panel *panel)
 	if (!panel->panel_initialized)
 		goto exit;
 
+	dsi_panel_idle_exit_locked(panel);	/* leap: see dsi_panel_set_lp1() */
+	panel->idle.suspended = true;
 	if (panel->hbm_applied == 1)	/* leap: see dsi_panel_set_lp1() */
 		dsi_panel_apply_hbm(panel, 0);
 
@@ -5345,6 +5535,7 @@ int dsi_panel_set_nolp(struct dsi_panel *panel)
 
 		DSI_INFO("[%s] HBM restored after LP, rc=%d\n", panel->name, hbm_rc);
 	}
+	panel->idle.suspended = false;	/* leap: panel idle allowed again */
 exit:
 	mutex_unlock(&panel->panel_lock);
 	return rc;
@@ -5725,6 +5916,7 @@ int dsi_panel_switch(struct dsi_panel *panel)
 	if (rc)
 		DSI_ERR("[%s] failed to send DSI_CMD_SET_TIMING_SWITCH cmds, rc=%d\n",
 		       panel->name, rc);
+	WRITE_ONCE(panel->idle.active, false);	/* leap: the new mode's set supersedes panel idle */
 
 	mutex_unlock(&panel->panel_lock);
 
@@ -5789,6 +5981,8 @@ int dsi_panel_enable(struct dsi_panel *panel)
 		}
 	}
 	panel->panel_initialized = true;
+	WRITE_ONCE(panel->idle.active, false);	/* leap: panel idle starts over */
+	panel->idle.suspended = false;
 
 	/* leap: the panel powers up with DC dimming off; restore the requested state */
 	panel->dc_applied = 0;
@@ -5899,6 +6093,9 @@ int dsi_panel_disable(struct dsi_panel *panel)
 	panel->panel_initialized = false;
 	panel->power_mode = SDE_MODE_DPMS_OFF;
 	panel->hbm_applied = 0;
+	WRITE_ONCE(panel->idle.active, false);
+	panel->idle.suspended = true;
+	cancel_delayed_work(&panel->idle.work);	/* not _sync: the work takes panel_lock */
 
 	mutex_unlock(&panel->panel_lock);
 	return rc;

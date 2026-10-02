@@ -1070,6 +1070,7 @@ void dsi_connector_put_modes(struct drm_connector *connector,
 		return;
 
 	dsi_display = display;
+	dsi_panel_idle_set_target(dsi_display->panel, NULL, 0);	/* leap: its target lives in these modes */
 	count = dsi_display->panel->num_display_modes;
 	for (i = 0; i < count; i++) {
 		struct dsi_display_mode *dsi_mode = &dsi_display->modes[i];
@@ -1206,6 +1207,11 @@ int dsi_connector_get_modes(struct drm_connector *connector, void *data,
 
 	for (i = 0; i < count; i++) {
 		struct drm_display_mode *m;
+
+		/* leap: panel-idle and partition-refresh timings are driven by the kernel, not offered */
+		if (modes[i].priv_info &&
+		    (modes[i].priv_info->framerate_group & DSI_FRG_KERNEL_ONLY))
+			continue;
 
 		memset(&drm_mode, 0x0, sizeof(drm_mode));
 		dsi_convert_to_drm_mode(&modes[i], &drm_mode);

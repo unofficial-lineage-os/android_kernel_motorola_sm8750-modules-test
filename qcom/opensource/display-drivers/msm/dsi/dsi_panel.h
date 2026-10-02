@@ -8,6 +8,7 @@
 #define _DSI_PANEL_H_
 
 #include <linux/of_device.h>
+#include <linux/workqueue.h>
 #include <linux/types.h>
 #include <linux/bitops.h>
 #include <linux/errno.h>
@@ -224,6 +225,19 @@ struct dsi_panel_ops {
 	int (*trigger_esd_attack)(struct dsi_panel *panel);
 };
 
+/* leap: see dsi_panel_idle_work() */
+struct dsi_panel_idle {
+	struct delayed_work work;
+	struct dsi_panel_cmd_set *target;	/* special-idle timing's TIMING_SWITCH set, owned by display->modes */
+	u32 target_hz;
+	bool active;				/* the panel self-refreshes at target_hz */
+	bool suspended;				/* panel off or in AOD */
+	unsigned long last_kick;		/* jiffies of the last frame or backlight change */
+	atomic_t kick_seq;
+	u32 entries;
+	u32 exits;
+};
+
 struct dsi_panel {
 	const char *name;
 	const char *type;
@@ -247,6 +261,7 @@ struct dsi_panel {
 	u32 hbm_state;
 	int hbm_applied;
 	u32 hbm_bl_lvl;
+	struct dsi_panel_idle idle;
 	struct drm_panel drm_panel;
 	struct mipi_dsi_host *host;
 	struct device *parent;
@@ -396,6 +411,10 @@ int dsi_panel_set_nolp(struct dsi_panel *panel);
 int dsi_panel_prepare(struct dsi_panel *panel);
 
 /* leap: Motorola panel features; param ids as sent by the displaypanel HAL */
+/* leap: panel idle (1 Hz self-refresh), see dsi_panel_idle_work() */
+void dsi_panel_idle_set_target(struct dsi_panel *panel, struct dsi_display_mode *modes, u32 count);
+void dsi_panel_idle_kick(struct dsi_panel *panel);
+
 #define DSI_PANEL_PARAM_HBM 0
 #define DSI_PANEL_PARAM_DC 3
 int dsi_panel_set_param(struct dsi_panel *panel, u32 param_id, u32 value);

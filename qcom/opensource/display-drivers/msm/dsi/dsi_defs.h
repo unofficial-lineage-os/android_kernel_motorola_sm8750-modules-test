@@ -658,6 +658,18 @@ struct dsi_host_config {
 	struct dsi_lane_map lane_map;
 };
 
+/* leap: Motorola qcom,framerate-group-* flags of a timing node (stock bit values) */
+#define DSI_FRG_NO_DUPLICATED		BIT(0)
+#define DSI_FRG_120HZ_BASED		BIT(1)
+#define DSI_FRG_90HZ_BASED		BIT(2)
+#define DSI_FRG_SPECIAL_IDLE_1HZ	BIT(3)
+#define DSI_FRG_SPECIAL_IDLE_10HZ	BIT(4)
+#define DSI_FRG_PARTITION_REFRESH	BIT(5)
+#define DSI_FRG_PARTITION_REFRESH_LP	BIT(6)
+/* timings the kernel drives itself (panel idle) or does not support (partition refresh) */
+#define DSI_FRG_KERNEL_ONLY	(DSI_FRG_SPECIAL_IDLE_1HZ | DSI_FRG_SPECIAL_IDLE_10HZ | \
+				 DSI_FRG_PARTITION_REFRESH | DSI_FRG_PARTITION_REFRESH_LP)
+
 /**
  * struct dsi_display_mode_priv_info - private mode info that will be attached
  *                             with each drm mode
@@ -693,6 +705,7 @@ struct dsi_host_config {
  */
 struct dsi_display_mode_priv_info {
 	struct dsi_panel_cmd_set cmd_sets[DSI_CMD_SET_MAX];
+	u32 framerate_group;	/* leap: DSI_FRG_* */
 
 	u32 *phy_timing_val;
 	u32 phy_timing_len;

@@ -247,6 +247,7 @@ int dsi_display_set_backlight(struct drm_connector *connector,
 
 	panel = dsi_display->panel;
 
+	dsi_panel_idle_kick(panel);	/* leap: brightness changes need the full refresh rate */
 	mutex_lock(&panel->panel_lock);
 	if (!dsi_panel_initialized(panel)) {
 		rc = -EINVAL;
@@ -7659,6 +7660,8 @@ int dsi_display_get_modes(struct dsi_display *display,
 	if (rc)
 		goto error;
 
+	dsi_panel_idle_set_target(display->panel, display->modes, display_mode_count);	/* leap */
+
 exit:
 	*out_modes = display->modes;
 	rc = 0;
@@ -9096,6 +9099,9 @@ int dsi_display_pre_kickoff(struct drm_connector *connector,
 	int i;
 
 	mode = display->panel->cur_mode;
+
+	/* leap: a frame is coming; leave panel idle first */
+	dsi_panel_idle_kick(display->panel);
 
 	/* check and setup MISR */
 	if (display->misr_enable)
