@@ -4,6 +4,7 @@
  * Copyright (c) 2016-2021, The Linux Foundation. All rights reserved.
  */
 
+#include <linux/notifier.h>
 #include <linux/delay.h>
 #include <linux/slab.h>
 #include <linux/gpio.h>
@@ -4076,6 +4077,128 @@ static void dsi_panel_setup_vm_ops(struct dsi_panel *panel, bool trusted_vm_env)
 	}
 }
 
+
+/*
+ * leap: Motorola panel features. Motorola's unpublished driver sends extra DCS command sets named on the panel
+ * node (qcom,mdss-dsi-dc-on/off-command + -state) when its panel HAL issues SET_PANEL_FEATURE. Parsed and sent
+ * with the same helpers as the standard command sets.
+ */
+static int dsi_panel_parse_named_cmd_set(struct dsi_panel_cmd_set *cmd, const char *prop,
+		const char *state_prop, struct dsi_parser_utils *utils)
+{
+	int rc = 0;
+	u32 length = 0, packet_count = 0;
+	const char *data, *state;
+
+	data = utils->get_property(utils->data, prop, &length);
+	if (!data)
+		return -ENOTSUPP;
+
+	rc = dsi_panel_get_cmd_pkt_count(data, length, &packet_count);
+	if (rc)
+		return rc;
+
+	rc = dsi_panel_alloc_cmd_packets(cmd, packet_count);
+	if (rc)
+		return rc;
+
+	rc = dsi_panel_create_cmd_packets(data, length, packet_count, cmd->cmds);
+	if (rc)
+		goto error_free_mem;
+
+	state = utils->get_property(utils->data, state_prop, NULL);
+	if (!state || !strcmp(state, "dsi_lp_mode")) {
+		cmd->state = DSI_CMD_SET_STATE_LP;
+	} else if (!strcmp(state, "dsi_hs_mode")) {
+		cmd->state = DSI_CMD_SET_STATE_HS;
+	} else {
+		rc = -EINVAL;
+		goto error_free_mem;
+	}
+	return 0;
+
+error_free_mem:
+	kfree(cmd->cmds);
+	cmd->cmds = NULL;
+	cmd->count = 0;
+	return rc;
+}
+
+static void dsi_panel_parse_dc_cmds(struct dsi_panel *panel)
+{
+	struct dsi_parser_utils *utils = &panel->utils;
+	int rc_off, rc_on;
+
+	panel->dc_state = 0;
+	panel->dc_applied = -1;
+	rc_off = dsi_panel_parse_named_cmd_set(&panel->dc_cmds[0], "qcom,mdss-dsi-dc-off-command",
+			"qcom,mdss-dsi-dc-off-command-state", utils);
+	rc_on = dsi_panel_parse_named_cmd_set(&panel->dc_cmds[1], "qcom,mdss-dsi-dc-on-command",
+			"qcom,mdss-dsi-dc-on-command-state", utils);
+	panel->dc_supported = !rc_off && !rc_on;
+	DSI_INFO("[%s] DC dimming %s\n", panel->name,
+			panel->dc_supported ? "supported" : "not described in DT");
+}
+
+static void dsi_panel_free_dc_cmds(struct dsi_panel *panel)
+{
+	int i;
+
+	for (i = 0; i < 2; i++) {
+		if (!panel->dc_cmds[i].cmds)
+			continue;
+		dsi_panel_destroy_cmd_packets(&panel->dc_cmds[i]);
+		dsi_panel_dealloc_cmd_packets(&panel->dc_cmds[i]);
+		panel->dc_cmds[i].cmds = NULL;
+		panel->dc_cmds[i].count = 0;
+	}
+	panel->dc_supported = false;
+}
+
+/* same transfer path and flags as dsi_panel_tx_cmd_set(); caller holds panel_lock */
+static int dsi_panel_tx_named_cmd_set(struct dsi_panel *panel, struct dsi_panel_cmd_set *set)
+{
+	struct dsi_cmd_desc *cmds = set->cmds;
+	ssize_t len;
+	u32 i;
+
+	for (i = 0; i < set->count; i++, cmds++) {
+		cmds->ctrl_flags = 0;
+		if (set->state == DSI_CMD_SET_STATE_LP)
+			cmds->msg.flags |= MIPI_DSI_MSG_USE_LPM;
+		len = dsi_host_transfer_sub(panel->host, cmds, false);
+		if (len < 0)
+			return len;
+		if (cmds->post_wait_ms)
+			usleep_range(cmds->post_wait_ms * 1000, (cmds->post_wait_ms * 1000) + 10);
+	}
+	return 0;
+}
+
+int dsi_panel_set_param(struct dsi_panel *panel, u32 param_id, u32 value)
+{
+	int rc = 0;
+
+	if (!panel)
+		return -EINVAL;
+	if (param_id != DSI_PANEL_PARAM_DC || !panel->dc_supported)
+		return -EOPNOTSUPP;
+
+	value = value ? 1 : 0;
+	mutex_lock(&panel->panel_lock);
+	panel->dc_state = value;
+	if (!dsi_panel_initialized(panel) || panel->dc_applied == (int)value)
+		goto out;	/* off panels pick the state up in dsi_panel_enable() */
+
+	rc = dsi_panel_tx_named_cmd_set(panel, &panel->dc_cmds[value]);
+	if (!rc)
+		panel->dc_applied = value;
+	DSI_INFO("[%s] DC dimming %s, rc=%d\n", panel->name, value ? "on" : "off", rc);
+out:
+	mutex_unlock(&panel->panel_lock);
+	return rc;
+}
+
 struct dsi_panel *dsi_panel_get(struct device *parent,
 				struct device_node *of_node,
 				struct device_node *parser_node,
@@ -4218,6 +4341,8 @@ struct dsi_panel *dsi_panel_get(struct device *parent,
 	if (rc)
 		DSI_ERR("failed to parse misc features, rc=%d\n", rc);
 
+	dsi_panel_parse_dc_cmds(panel);	/* leap: Motorola DC dimming */
+
 	rc = dsi_panel_parse_hdr_config(panel);
 	if (rc)
 		DSI_ERR("failed to parse hdr config, rc=%d\n", rc);
@@ -4267,6 +4392,7 @@ void dsi_panel_put(struct dsi_panel *panel)
 	dsi_panel_esd_config_deinit(&panel->esd_config);
 
 	kfree(panel->avr_caps.avr_step_fps_list);
+	dsi_panel_free_dc_cmds(panel);
 	kfree(panel);
 }
 
@@ -5552,6 +5678,16 @@ int dsi_panel_enable(struct dsi_panel *panel)
 		}
 	}
 	panel->panel_initialized = true;
+
+	/* leap: the panel powers up with DC dimming off; restore the requested state */
+	panel->dc_applied = 0;
+	if (panel->dc_supported && panel->dc_state) {
+		int dc_rc = dsi_panel_tx_named_cmd_set(panel, &panel->dc_cmds[1]);
+
+		if (!dc_rc)
+			panel->dc_applied = 1;
+		DSI_INFO("[%s] DC dimming restored on enable, rc=%d\n", panel->name, dc_rc);
+	}
 
 error:
 	mutex_unlock(&panel->panel_lock);

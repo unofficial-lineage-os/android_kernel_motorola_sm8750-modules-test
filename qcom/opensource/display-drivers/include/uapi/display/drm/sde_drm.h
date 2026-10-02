@@ -1019,6 +1019,8 @@ struct sde_drm_dnsc_blur_cfg {
 #define DRM_MSM_POWER_CTRL             0x44
 #define DRM_MSM_DISPLAY_HINT           0x45
 #define DRM_MSM_EARLY_EPT              0x46
+/* leap: Motorola panel-feature ioctl, as in stock msm_drm (SET_PANEL_FEATURE), used by displaypanel.default.so */
+#define DRM_MSM_SET_PANEL_FEATURE      0x5F
 
 /* sde custom events */
 #define DRM_EVENT_HISTOGRAM 0x80000000
@@ -1079,6 +1081,17 @@ struct sde_drm_dnsc_blur_cfg {
 			DRM_MSM_DISPLAY_HINT), struct drm_msm_display_hint)
 #define DRM_IOCTL_MSM_EARLY_EPT DRM_IOW((DRM_COMMAND_BASE + \
 			DRM_MSM_EARLY_EPT), struct drm_msm_display_early_ept)
+
+/*
+ * leap: Motorola panel features. param_id: 0 HBM, 1 CABC, 2 ACL, 3 DC dimming, 4 COLOR (ids as sent by
+ * Motorola's displaypanel HAL). 8 bytes, request code 0xC008649F exactly as stock.
+ */
+struct msm_panel_feature {
+	__u32 param_id;
+	__u32 value;
+};
+#define DRM_IOCTL_MSM_SET_PANEL_FEATURE DRM_IOWR((DRM_COMMAND_BASE + \
+			DRM_MSM_SET_PANEL_FEATURE), struct msm_panel_feature)
 
 #if defined(__cplusplus)
 }

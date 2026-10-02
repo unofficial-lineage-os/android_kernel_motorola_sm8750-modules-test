@@ -138,6 +138,8 @@ struct msm_kms_funcs {
 	/*trigger null flush if stuck in cont splash*/
 	int (*trigger_null_flush)(struct msm_kms *kms);
 	/* topology lm information */
+	/* leap: Motorola panel features (DC dimming), see msm_ioctl_set_panel_feature() */
+	int (*set_panel_feature)(struct msm_kms *kms, u32 param_id, u32 value);
 	int (*get_mixer_count)(const struct msm_kms *kms,
 			const struct drm_display_mode *mode,
 			const struct msm_resource_caps_info *res, u32 *num_lm);

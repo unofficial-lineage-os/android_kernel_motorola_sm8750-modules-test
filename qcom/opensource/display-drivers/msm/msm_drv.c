@@ -1878,6 +1878,26 @@ int msm_ioctl_display_early_ept(struct drm_device *dev, void *data,
 	return 0;
 }
 
+/*
+ * leap: Motorola's panel HAL (displaypanel.default.so) switches DC dimming (and HBM/CABC/ACL/COLOR) with this
+ * ioctl on /dev/dri/card0; stock serves it from msm_ioctls[] as SET_PANEL_FEATURE (DRM_UNLOCKED).
+ */
+static int msm_ioctl_set_panel_feature(struct drm_device *dev, void *data,
+		struct drm_file *file)
+{
+	struct msm_drm_private *priv = dev->dev_private;
+	struct msm_panel_feature *feature = data;
+
+	BUILD_BUG_ON(DRM_IOCTL_MSM_SET_PANEL_FEATURE != 0xC008649F);
+
+	if (!feature || !priv || !priv->kms || !priv->kms->funcs ||
+			!priv->kms->funcs->set_panel_feature)
+		return -EINVAL;
+
+	return priv->kms->funcs->set_panel_feature(priv->kms,
+			feature->param_id, feature->value);
+}
+
 static const struct drm_ioctl_desc msm_ioctls[] = {
 	DRM_IOCTL_DEF_DRV(MSM_GEM_NEW,      msm_ioctl_gem_new,      DRM_AUTH|DRM_RENDER_ALLOW),
 	DRM_IOCTL_DEF_DRV(MSM_GEM_CPU_PREP, msm_ioctl_gem_cpu_prep, DRM_AUTH|DRM_RENDER_ALLOW),
@@ -1894,6 +1914,8 @@ static const struct drm_ioctl_desc msm_ioctls[] = {
 	DRM_IOCTL_DEF_DRV(MSM_DISPLAY_HINT, msm_ioctl_display_hint_ops,
 			DRM_UNLOCKED),
 	DRM_IOCTL_DEF_DRV(MSM_EARLY_EPT, msm_ioctl_display_early_ept,
+			DRM_UNLOCKED),
+	DRM_IOCTL_DEF_DRV(MSM_SET_PANEL_FEATURE, msm_ioctl_set_panel_feature,
 			DRM_UNLOCKED),
 };
 

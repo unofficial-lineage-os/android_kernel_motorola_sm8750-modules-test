@@ -232,6 +232,13 @@ struct dsi_panel {
 	bool panel_ack_disabled;
 
 	struct mutex panel_lock;
+
+	/* leap: Motorola panel features, see dsi_panel_set_param(). dc_cmds[0]=off, [1]=on from the panel DT
+	 * (qcom,mdss-dsi-dc-off/on-command); dc_state is the requested state, dc_applied the panel's (-1 unknown). */
+	struct dsi_panel_cmd_set dc_cmds[2];
+	bool dc_supported;
+	u32 dc_state;
+	int dc_applied;
 	struct drm_panel drm_panel;
 	struct mipi_dsi_host *host;
 	struct device *parent;
@@ -379,6 +386,10 @@ int dsi_panel_set_lp2_load(struct dsi_panel *panel, bool enable);
 int dsi_panel_set_nolp(struct dsi_panel *panel);
 
 int dsi_panel_prepare(struct dsi_panel *panel);
+
+/* leap: Motorola panel features; param ids as sent by the displaypanel HAL */
+#define DSI_PANEL_PARAM_DC 3
+int dsi_panel_set_param(struct dsi_panel *panel, u32 param_id, u32 value);
 
 int dsi_panel_enable(struct dsi_panel *panel);
 

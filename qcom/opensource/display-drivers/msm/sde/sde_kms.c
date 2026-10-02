@@ -4772,7 +4772,32 @@ end:
 	return 0;
 }
 
+/*
+ * leap: apply a Motorola panel feature to every DSI panel. A panel that is off records the request and
+ * applies it on its next enable (dsi_panel_enable), so the inner and cover screens stay in step.
+ */
+static int sde_kms_set_panel_feature(struct msm_kms *kms, u32 param_id, u32 value)
+{
+	struct sde_kms *sde_kms = to_sde_kms(kms);
+	struct dsi_display *display;
+	int i, ret, rc = -EOPNOTSUPP;
+
+	for (i = 0; i < sde_kms->dsi_display_count; i++) {
+		display = (struct dsi_display *)sde_kms->dsi_displays[i];
+		if (!display || !display->panel)
+			continue;
+		ret = dsi_panel_set_param(display->panel, param_id, value);
+		if (ret == -EOPNOTSUPP)
+			continue;
+		if (rc == -EOPNOTSUPP || ret)
+			rc = ret;
+	}
+
+	return rc;
+}
+
 static const struct msm_kms_funcs kms_funcs = {
+	.set_panel_feature = sde_kms_set_panel_feature,
 	.hw_init         = sde_kms_hw_init,
 	.postinit        = sde_kms_postinit,
 	.irq_preinstall  = sde_irq_preinstall,
