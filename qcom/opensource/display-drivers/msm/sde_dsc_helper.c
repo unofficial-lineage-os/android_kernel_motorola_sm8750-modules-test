@@ -92,7 +92,7 @@ static char sde_dsc_rc_range_max_qp[DSC_RATIO_TYPE_MAX][DSC_NUM_BUF_RANGES] = {
  * leap: rate-control max QP for Novatek DDICs, selected by the panel's "qcom,mdss-dsc-novateck-ic" flag.
  * Motorola publishes no display-drivers source for this phone; these 14x15 values are
  * sde_dsc_rc_range_max_qp_nt from leap's A16 stock vendor_dlkm msm_drm.ko (BuildID 54aa569990a5fcb3eb9a5d5e0762d53a514864d4),
- * extracted byte for byte (tools/dsc_d55/). They differ from sde_dsc_rc_range_max_qp in exactly one
+ * extracted byte for byte. They differ from sde_dsc_rc_range_max_qp in exactly one
  * cell, [DSC_V11_10BPC_8BPP][0] = 8 (generic 4), the row both leap panels (NT37707, DSC 1.1, 10 bpc,
  * 8 bpp, RGB 444, no SCR) resolve to. min QP, bpg and bpg_override_v1 match stock unchanged.
  * Same finding as the arcfox (Razr 50 Ultra) port.
