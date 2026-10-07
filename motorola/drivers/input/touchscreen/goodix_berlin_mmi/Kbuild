@@ -1,4 +1,4 @@
-# leap: same fallback moto_sched uses — under kernel.mk nothing sets ANDROID_BUILD_TOP (kernel/motorola/ carries the symlink stubs)
+# leap: under kernel.mk nothing sets ANDROID_BUILD_TOP; keep the remaining layout paths inside the source tree
 ifeq ($(ANDROID_BUILD_TOP),)
 ANDROID_BUILD_TOP := $(srctree)/..
 endif
@@ -8,7 +8,7 @@ ifneq ($(filter m y,$(CHANGE_STACK_FRAME_SIZE)),)
 EXTRA_CFLAGS += -Wframe-larger-than=4096
 endif
 EXTRA_CFLAGS += \
-		-I$(ANDROID_BUILD_TOP)/motorola/kernel/modules/include
+		-I$(srctree)/../sm8750-modules/motorola/include
 
 obj-m := goodix_brl_mmi.o
 goodix_brl_mmi-objs := \

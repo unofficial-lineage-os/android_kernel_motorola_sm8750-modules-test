@@ -1,12 +1,12 @@
-# leap: same fallback moto_sched uses — under kernel.mk nothing sets ANDROID_BUILD_TOP (kernel/motorola/ carries the symlink stubs)
+# leap: under kernel.mk nothing sets ANDROID_BUILD_TOP; keep the remaining layout paths inside the source tree
 ifeq ($(ANDROID_BUILD_TOP),)
 ANDROID_BUILD_TOP := $(srctree)/..
 endif
 # add -Wall to try to catch everything we can.
 EXTRA_CFLAGS += -Wall
-EXTRA_CFLAGS += -I$(ANDROID_BUILD_TOP)/motorola/kernel/modules/include \
-		-I$(ANDROID_BUILD_TOP)/motorola/kernel/modules/drivers/power/sc760x_charger_mmi \
-		-I$(ANDROID_BUILD_TOP)/motorola/kernel/modules/drivers/power/mmi_charger
+EXTRA_CFLAGS += -I$(srctree)/../sm8750-modules/motorola/include \
+		-I$(srctree)/../sm8750-modules/motorola/drivers/power/sc760x_charger_mmi \
+		-I$(srctree)/../sm8750-modules/motorola/drivers/power/mmi_charger
 
 ifneq ($(filter m y,$(CONFIG_THERMAL_RATIO_CONTROL)),)
 	EXTRA_CFLAGS += -DTHERMAL_RATIO_CONTROL

@@ -1,11 +1,11 @@
-# leap: same fallback moto_sched uses — under kernel.mk nothing sets ANDROID_BUILD_TOP (kernel/motorola/ carries the symlink stubs)
+# leap: under kernel.mk nothing sets ANDROID_BUILD_TOP; keep the remaining layout paths inside the source tree
 ifeq ($(ANDROID_BUILD_TOP),)
 ANDROID_BUILD_TOP := $(srctree)/..
 endif
 # add -Wall to try to catch everything we can.
 EXTRA_CFLAGS += -Wall
-EXTRA_CFLAGS += -I$(ANDROID_BUILD_TOP)/motorola/kernel/modules/include \
-		-I$(ANDROID_BUILD_TOP)/motorola/kernel/modules/drivers/input/touchscreen/synaptics_tcm_mmi_v2
+EXTRA_CFLAGS += -I$(srctree)/../sm8750-modules/motorola/include \
+		-I$(srctree)/../sm8750-modules/motorola/drivers/input/touchscreen/synaptics_tcm_mmi_v2
 
 obj-m += synaptics_core_module.o
 

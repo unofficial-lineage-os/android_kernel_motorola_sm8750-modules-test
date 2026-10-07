@@ -1,4 +1,4 @@
-# leap: same fallback moto_sched uses — under kernel.mk nothing sets ANDROID_BUILD_TOP (kernel/motorola/ carries the symlink stubs)
+# leap: under kernel.mk nothing sets ANDROID_BUILD_TOP; keep the remaining layout paths inside the source tree
 ifeq ($(ANDROID_BUILD_TOP),)
 ANDROID_BUILD_TOP := $(srctree)/..
 endif
@@ -6,10 +6,10 @@ endif
 # the same code for MTK, and this comment will be removed once this is
 # done.
 ccflags-y += -Wall
-ccflags-y += -I$(ANDROID_BUILD_TOP)/motorola/kernel/modules/drivers/mrkp_test/
-ccflags-y += -I$(ANDROID_BUILD_TOP)/motorola/kernel/modules/include/
-ccflags-y += -I$(ANDROID_BUILD_TOP)/kernel_platform/msm-kernel/include/
-ccflags-y += -I$(ANDROID_BUILD_TOP)/kernel_platform/msm-kernel/
+ccflags-y += -I$(srctree)/../sm8750-modules/motorola/drivers/mrkp_test/
+ccflags-y += -I$(srctree)/../sm8750-modules/motorola/include/
+ccflags-y += -I$(srctree)/include/
+ccflags-y += -I$(srctree)/
 
 mrkp_test-objs := mrkp_test_main.o symbol.o
 

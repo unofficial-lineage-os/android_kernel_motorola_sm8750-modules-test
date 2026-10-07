@@ -1,10 +1,10 @@
-# leap: same fallback moto_sched uses — under kernel.mk nothing sets ANDROID_BUILD_TOP (kernel/motorola/ carries the symlink stubs)
+# leap: under kernel.mk nothing sets ANDROID_BUILD_TOP; keep the remaining layout paths inside the source tree
 ifeq ($(ANDROID_BUILD_TOP),)
 ANDROID_BUILD_TOP := $(srctree)/..
 endif
 KERNEL_VERSION_NAME = $(shell basename $(KERNEL_DIR_PATH))
 EXTRA_CFLAGS += -Wall
-EXTRA_CFLAGS += -I$(ANDROID_BUILD_TOP)/motorola/kernel/modules/include
+EXTRA_CFLAGS += -I$(srctree)/../sm8750-modules/motorola/include
 EXTRA_CFLAGS += -I$(ANDROID_BUILD_TOP)/$(KERNEL_VERSION_NAME)/drivers/base
 
 ifneq ($(filter m y,$(CONFIG_STK501xx_USB_CAL)),)
